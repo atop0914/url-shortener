@@ -17,8 +17,9 @@ func main() {
 	// 初始化数据库
 	repo, err := repository.NewURLRepository(cfg.DBPath)
 	if err != nil {
-		log.Fatal("Failed to initialize database:", err)
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
+	defer repo.Close() // 确保在程序退出时关闭数据库连接
 
 	// 初始化服务
 	shortenerService := service.NewShortenerService(repo, cfg.BaseURL)
@@ -50,6 +51,6 @@ func main() {
 	log.Printf("Base URL: %s", cfg.BaseURL)
 	log.Println("Features: Custom short codes, Expiration control, Statistics tracking")
 	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatal("Failed to start server:", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }

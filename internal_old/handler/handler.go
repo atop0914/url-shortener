@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"url-shortener/internal/model"
 	"url-shortener/internal/service"
-	"url-shortener/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,17 +21,13 @@ func NewHandler(service *service.ShortenerService) *Handler {
 func (h *Handler) CreateShortURL(c *gin.Context) {
 	var req model.CreateURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	resp, err := h.service.CreateShortURL(req.URL, req.CustomCode, req.ExpireIn)
 	if err != nil {
-		if err == utils.ErrCustomCodeExists || err == utils.ErrInvalidCustomCode {
-			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -44,14 +39,12 @@ func (h *Handler) Redirect(c *gin.Context) {
 
 	url, err := h.service.GetByShortCode(shortCode)
 	if err != nil {
-		switch {
-		case err == utils.ErrURLNotFound:
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "URL not found"})
-		case err == utils.ErrURLExpired:
-			c.JSON(http.StatusGone, model.ErrorResponse{Error: "Link has expired"})
-		default:
-			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		// 检查是否是因为链接过期
+		if err.Error() == "link has expired" {
+			c.JSON(http.StatusGone, gin.H{"error": "Link has expired"})
+			return
 		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 		return
 	}
 
@@ -63,11 +56,7 @@ func (h *Handler) GetStats(c *gin.Context) {
 
 	stats, err := h.service.GetStats(shortCode)
 	if err != nil {
-		if err == utils.ErrURLNotFound {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "URL not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
-		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 		return
 	}
 
@@ -77,7 +66,7 @@ func (h *Handler) GetStats(c *gin.Context) {
 func (h *Handler) ListURLs(c *gin.Context) {
 	urls, err := h.service.GetAllURLs()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -89,11 +78,7 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 
 	err := h.service.DeleteShortCode(shortCode)
 	if err != nil {
-		if err == utils.ErrURLNotFound {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "URL not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -104,11 +89,11 @@ func (h *Handler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "healthy", "message": "URL shortener service is running"})
 }
 
-// CleanupExpiredURLs 清理过期链接的API
+// 清理过期链接的API
 func (h *Handler) CleanupExpiredURLs(c *gin.Context) {
 	err := h.service.CleanupExpiredURLs()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "Failed to cleanup expired URLs"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cleanup expired URLs"})
 		return
 	}
 

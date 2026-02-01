@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type URL struct {
 	ID          int64      `json:"id" db:"id"`
@@ -13,9 +15,9 @@ type URL struct {
 }
 
 type CreateURLRequest struct {
-	URL        string `json:"url" binding:"required,url"`
-	CustomCode string `json:"custom_code,omitempty"` // 自定义短码
-	ExpireIn   int    `json:"expire_in,omitempty"`   // 过期时间（小时），0表示不过期
+	URL         string `json:"url" binding:"required,url"`
+	CustomCode  string `json:"custom_code,omitempty"`      // 自定义短码
+	ExpireIn    int    `json:"expire_in,omitempty"`        // 过期时间（小时），0表示不过期
 }
 
 type CreateURLResponse struct {
@@ -23,7 +25,7 @@ type CreateURLResponse struct {
 	Code      string `json:"code"`
 	Original  string `json:"original"`
 	CreatedAt string `json:"created_at"`
-	ExpiresAt string `json:"expires_at,omitempty"` // 可选的过期时间
+	ExpiresAt string `json:"expires_at,omitempty"`         // 可选的过期时间
 }
 
 type StatsResponse struct {
@@ -31,11 +33,6 @@ type StatsResponse struct {
 	ShortCode   string `json:"short_code"`
 	Clicks      int64  `json:"clicks"`
 	CreatedAt   string `json:"created_at"`
-	ExpiresAt   string `json:"expires_at,omitempty"` // 可选的过期时间
+	ExpiresAt   string `json:"expires_at,omitempty"`       // 可选的过期时间
 	IsActive    bool   `json:"is_active"`
-}
-
-// ErrorResponse 用于统一错误响应格式
-type ErrorResponse struct {
-	Error string `json:"error"`
 }

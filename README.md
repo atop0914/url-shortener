@@ -10,8 +10,10 @@
 - 🛡️ SQLite 数据库存储
 - 🌐 RESTful API 接口
 - ⏰ **新增**: 链接有效期控制（24小时、7天、30天等）
-- 🎯 **新增**: 自定义短码功能
+- 🎯 **新增**: 自定义短码功能（支持字母、数字、下划线、连字符）
 - 🗑️ **新增**: 自动清理过期链接
+- 🔒 **新增**: 统一错误处理和输入验证
+- 🛡️ **新增**: 并发安全保证
 
 ## 技术栈
 
@@ -29,7 +31,7 @@ Content-Type: application/json
 
 {
   "url": "https://example.com/very/long/url",
-  "custom_code": "mylink",        # 可选：自定义短码（3-20字符）
+  "custom_code": "mylink",        # 可选：自定义短码（3-20字符，支持字母、数字、下划线、连字符）
   "expire_in": 24                 # 可选：过期时间（小时），0表示不过期
 }
 ```
@@ -81,6 +83,7 @@ POST /api/cleanup
 - `PORT`: 服务端口 (默认: 8080)
 - `DB_PATH`: 数据库路径 (默认: ./urls.db)
 - `BASE_URL`: 基础 URL (默认: http://localhost:8080)
+- `LOG_LEVEL`: 日志级别 (默认: info)
 
 ### 本地运行
 
@@ -132,14 +135,26 @@ url-shortener/
 │   ├── handler/
 │   │   └── handler.go   # HTTP 处理器
 │   ├── model/
-│   │   └── url.go       # 数据模型（新增过期时间、自定义短码字段）
+│   │   └── url.go       # 数据模型
 │   ├── repository/
-│   │   └── url_repo.go  # 数据库操作（新增过期时间支持）
-│   └── service/
-│       └── shortener.go # 业务逻辑（新增自定义短码、过期控制功能）
+│   │   └── url_repo.go  # 数据库操作
+│   ├── service/
+│   │   └── shortener.go # 业务逻辑
+│   └── utils/
+│       ├── errors.go    # 统一错误定义
+│       └── validation.go # 输入验证
 ├── go.mod
 └── README.md
 ```
+
+## 重构改进点
+
+1. **错误处理**: 统一错误定义和处理
+2. **输入验证**: 更严格的输入验证，防止无效的自定义短码
+3. **并发安全**: 使用互斥锁保护关键操作
+4. **代码结构**: 清晰的模块划分
+5. **资源管理**: 确保数据库连接正确关闭
+6. **代码质量**: 更好的注释和文档
 
 ## 许可证
 
