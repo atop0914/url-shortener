@@ -25,7 +25,7 @@ func (h *Handler) CreateShortURL(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.service.CreateShortURL(req.URL)
+	resp, err := h.service.CreateShortURL(req.URL, req.CustomCode, req.ExpireIn)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -39,6 +39,11 @@ func (h *Handler) Redirect(c *gin.Context) {
 
 	url, err := h.service.GetByShortCode(shortCode)
 	if err != nil {
+		// 检查是否是因为链接过期
+		if err.Error() == "link has expired" {
+			c.JSON(http.StatusGone, gin.H{"error": "Link has expired"})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 		return
 	}
@@ -82,4 +87,15 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 
 func (h *Handler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "healthy", "message": "URL shortener service is running"})
+}
+
+// 清理过期链接的API
+func (h *Handler) CleanupExpiredURLs(c *gin.Context) {
+	err := h.service.CleanupExpiredURLs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cleanup expired URLs"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Expired URLs cleaned up successfully"})
 }

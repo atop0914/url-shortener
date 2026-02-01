@@ -9,6 +9,9 @@
 - 🔗 一键重定向
 - 🛡️ SQLite 数据库存储
 - 🌐 RESTful API 接口
+- ⏰ **新增**: 链接有效期控制（24小时、7天、30天等）
+- 🎯 **新增**: 自定义短码功能
+- 🗑️ **新增**: 自动清理过期链接
 
 ## 技术栈
 
@@ -19,23 +22,26 @@
 
 ## API 接口
 
-### 创建短链接
+### 创建短链接（支持自定义短码和过期时间）
 ```
 POST /api/shorten
 Content-Type: application/json
 
 {
-  "url": "https://example.com/very/long/url"
+  "url": "https://example.com/very/long/url",
+  "custom_code": "mylink",        # 可选：自定义短码（3-20字符）
+  "expire_in": 24                 # 可选：过期时间（小时），0表示不过期
 }
 ```
 
 **响应**:
 ```json
 {
-  "short_url": "http://localhost:8080/abc123",
-  "code": "abc123",
+  "short_url": "http://localhost:8080/mylink",
+  "code": "mylink",
   "original": "https://example.com/very/long/url",
-  "created_at": "2026-02-01T11:30:00Z"
+  "created_at": "2026-02-01T11:30:00Z",
+  "expires_at": "2026-02-02T11:30:00Z"  # 如果设置了过期时间
 }
 ```
 
@@ -43,7 +49,7 @@ Content-Type: application/json
 ```
 GET /{short_code}
 ```
-重定向到原始 URL。
+重定向到原始 URL。如果链接已过期，返回 410 状态码。
 
 ### 查看统计
 ```
@@ -54,11 +60,19 @@ GET /api/stats/{code}
 ```json
 {
   "original_url": "https://example.com/...",
-  "short_code": "abc123",
+  "short_code": "mylink",
   "clicks": 42,
-  "created_at": "2026-02-01T11:30:00Z"
+  "created_at": "2026-02-01T11:30:00Z",
+  "expires_at": "2026-02-02T11:30:00Z",  # 如果设置了过期时间
+  "is_active": true
 }
 ```
+
+### 清理过期链接
+```
+POST /api/cleanup
+```
+手动清理所有已过期的链接。
 
 ## 部署
 
@@ -81,16 +95,29 @@ go run cmd/server/main.go
 ## 示例
 
 ```bash
-# 创建短链接
+# 创建带自定义短码的链接
 curl -X POST http://localhost:8080/api/shorten \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/very/long/url"}'
+  -d '{"url": "https://example.com/very/long/url", "custom_code": "mylink"}'
+
+# 创建带24小时过期时间的链接
+curl -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/very/long/url", "expire_in": 24}'
+
+# 创建带自定义短码和过期时间的链接
+curl -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/very/long/url", "custom_code": "special", "expire_in": 168}'  # 168小时 = 7天
 
 # 访问短链接
-curl http://localhost:8080/abc123
+curl http://localhost:8080/mylink
 
 # 查看统计
-curl http://localhost:8080/api/stats/abc123
+curl http://localhost:8080/api/stats/mylink
+
+# 清理过期链接
+curl -X POST http://localhost:8080/api/cleanup
 ```
 
 ## 项目结构
@@ -105,11 +132,11 @@ url-shortener/
 │   ├── handler/
 │   │   └── handler.go   # HTTP 处理器
 │   ├── model/
-│   │   └── url.go       # 数据模型
+│   │   └── url.go       # 数据模型（新增过期时间、自定义短码字段）
 │   ├── repository/
-│   │   └── url_repo.go  # 数据库操作
+│   │   └── url_repo.go  # 数据库操作（新增过期时间支持）
 │   └── service/
-│       └── shortener.go # 业务逻辑
+│       └── shortener.go # 业务逻辑（新增自定义短码、过期控制功能）
 ├── go.mod
 └── README.md
 ```

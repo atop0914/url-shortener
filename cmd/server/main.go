@@ -39,6 +39,7 @@ func main() {
 		api.GET("/stats/:code", h.GetStats)
 		api.GET("/urls", h.ListURLs)
 		api.DELETE("/links/:code", h.DeleteURL)
+		api.POST("/cleanup", h.CleanupExpiredURLs) // 新增清理过期链接API
 	}
 
 	// 重定向路由
@@ -47,6 +48,7 @@ func main() {
 	// 启动服务器
 	log.Printf("Server starting on port %s", cfg.Port)
 	log.Printf("Base URL: %s", cfg.BaseURL)
+	log.Println("Features: Custom short codes, Expiration control, Statistics tracking")
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}

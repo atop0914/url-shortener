@@ -10,47 +10,61 @@ import (
 )
 
 const (
-	base62Chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	shortCodeLength = 6
-	maxRetries = 10
+	base62Chars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	defaultShortCodeLength = 6
+	minCustomCodeLength = 3
+	maxCustomCodeLength = 20
+	maxRetries        = 10
 )
 
 type ShortenerService struct {
-	repo *repository.URLRepository
+	repo    *repository.URLRepository
 	baseURL string
 }
 
 func NewShortenerService(repo *repository.URLRepository, baseURL string) *ShortenerService {
 	return &ShortenerService{
-		repo: repo,
+		repo:    repo,
 		baseURL: baseURL,
 	}
 }
 
-func (s *ShortenerService) CreateShortURL(originalURL string) (*model.CreateURLResponse, error) {
-	// 检查原 URL 是否已存在
-	urls, err := s.repo.GetAll()
-	if err == nil {
-		for _, url := range urls {
-			if url.OriginalURL == originalURL {
-				return &model.CreateURLResponse{
-					ShortURL: s.baseURL + "/" + url.ShortCode,
-					Code:     url.ShortCode,
-					Original: originalURL,
-					CreatedAt: url.CreatedAt.Format(time.RFC3339),
-				}, nil
-			}
+func (s *ShortenerService) CreateShortURL(originalURL string, customCode string, expireInHours int) (*model.CreateURLResponse, error) {
+	var shortCode string
+	
+	// 如果提供了自定义短码，验证并使用它
+	if customCode != "" {
+		// 验证自定义短码
+		if len(customCode) < minCustomCodeLength || len(customCode) > maxCustomCodeLength {
+			return nil, errors.New("custom code length must be between 3 and 20 characters")
+		}
+		
+		// 检查自定义短码是否已被使用
+		_, err := s.repo.GetByShortCode(customCode)
+		if err == nil {
+			// 如果没有报错，说明短码已存在
+			return nil, errors.New("custom code already exists, please choose another one")
+		}
+		
+		shortCode = customCode
+	} else {
+		// 生成随机短码
+		var err error
+		shortCode, err = s.generateUniqueShortCode()
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// 生成短码
-	shortCode, err := s.generateUniqueShortCode()
-	if err != nil {
-		return nil, err
+	// 计算过期时间
+	var expiresAt *time.Time
+	if expireInHours > 0 {
+		expireTime := time.Now().Add(time.Duration(expireInHours) * time.Hour)
+		expiresAt = &expireTime
 	}
 
 	// 保存到数据库
-	err = s.repo.Create(originalURL, shortCode)
+	err := s.repo.CreateWithExpiry(originalURL, shortCode, expiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +77,10 @@ func (s *ShortenerService) CreateShortURL(originalURL string) (*model.CreateURLR
 		CreatedAt: time.Now().Format(time.RFC3339),
 	}
 
+	if expiresAt != nil {
+		response.ExpiresAt = expiresAt.Format(time.RFC3339)
+	}
+
 	return response, nil
 }
 
@@ -70,6 +88,12 @@ func (s *ShortenerService) GetByShortCode(shortCode string) (*model.URL, error) 
 	url, err := s.repo.GetByShortCode(shortCode)
 	if err != nil {
 		return nil, err
+	}
+
+	// 检查链接是否已过期
+	if url.ExpiresAt != nil && time.Now().After(*url.ExpiresAt) {
+		// 链接已过期，可以选择性地删除或标记为不活跃
+		return nil, errors.New("link has expired")
 	}
 
 	// 增加点击次数
@@ -86,11 +110,22 @@ func (s *ShortenerService) GetStats(shortCode string) (*model.StatsResponse, err
 		return nil, err
 	}
 
+	// 检查链接是否已过期
+	isActive := url.IsActive
+	if url.ExpiresAt != nil {
+		isActive = time.Now().Before(*url.ExpiresAt) && url.IsActive
+	}
+
 	stats := &model.StatsResponse{
 		OriginalURL: url.OriginalURL,
 		ShortCode:   url.ShortCode,
 		Clicks:      url.Clicks,
 		CreatedAt:   url.CreatedAt.Format(time.RFC3339),
+		IsActive:    isActive,
+	}
+
+	if url.ExpiresAt != nil {
+		stats.ExpiresAt = url.ExpiresAt.Format(time.RFC3339)
 	}
 
 	return stats, nil
@@ -100,7 +135,7 @@ func (s *ShortenerService) generateUniqueShortCode() (string, error) {
 	rand.Seed(time.Now().UnixNano())
 
 	for i := 0; i < maxRetries; i++ {
-		shortCode := s.generateRandomString(shortCodeLength)
+		shortCode := s.generateRandomString(defaultShortCodeLength)
 		
 		// 检查短码是否已存在
 		_, err := s.repo.GetByShortCode(shortCode)
@@ -131,4 +166,9 @@ func (s *ShortenerService) GetAllURLs() ([]*model.URL, error) {
 
 func (s *ShortenerService) DeleteShortCode(shortCode string) error {
 	return s.repo.DeleteByShortCode(shortCode)
+}
+
+// 清理过期链接的方法
+func (s *ShortenerService) CleanupExpiredURLs() error {
+	return s.repo.DeleteExpiredURLs()
 }
