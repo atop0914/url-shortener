@@ -43,8 +43,3 @@ type StatsResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`                                   // 错误信息
 }
-
-// VisitAnalyticsRequest 访问分析请求参数
-type VisitAnalyticsRequest struct {
-	ShortCode string `uri:"code" binding:"required"`              // 短码，从URI路径获取
-}

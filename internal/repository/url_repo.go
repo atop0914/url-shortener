@@ -14,19 +14,10 @@ type URLRepository struct {
 	db *sql.DB
 }
 
-func NewURLRepository(dbPath string) (*URLRepository, error) {
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
+func NewURLRepository(db *sql.DB) *URLRepository {
 	repo := &URLRepository{db: db}
-	err = repo.initDB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	return repo, nil
+	repo.initDB()
+	return repo
 }
 
 func (r *URLRepository) initDB() error {

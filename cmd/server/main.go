@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	"time"
 	"url-shortener/internal/config"
 	"url-shortener/internal/handler"
+	"url-shortener/internal/middleware"
 	"url-shortener/internal/repository"
 	"url-shortener/internal/service"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -24,20 +27,32 @@ func initApp() (*http.Server, error) {
 	cfg := config.LoadConfig()
 
 	// 初始化数据库连接
-	db, err := config.InitDB(cfg.DatabaseURL)
+	db, err := sql.Open("sqlite3", cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	defer db.Close()
 
 	// 初始化存储库
 	urlRepo := repository.NewURLRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
+	apiKeyRepo := repository.NewAPIKeyRepository(db)
+
+	// 初始化 API Key 表
+	if err := apiKeyRepo.InitSchema(); err != nil {
+		return nil, fmt.Errorf("failed to initialize API key schema: %w", err)
+	}
 
 	// 初始化服务
 	shortenerService := service.NewEnhancedShortenerService(urlRepo, analyticsRepo, cfg.BaseURL)
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo)
 
 	// 初始化处理器
 	enhancedHandler := handler.NewEnhancedHandler(shortenerService)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
+
+	// 初始化中间件
+	apiKeyMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService)
 
 	// 设置Gin模式
 	if cfg.Debug {
@@ -59,19 +74,35 @@ func initApp() (*http.Server, error) {
 	// 健康检查路由
 	router.GET("/health", enhancedHandler.HealthCheck)
 
-	// API路由组
-	api := router.Group("/api")
+	// 公开路由 - 不需要 API Key
+	apiPublic := router.Group("/api")
+	{
+		// 短链接相关路由（创建需要 API Key）
+		apiPublic.POST("/shorten", apiKeyMiddleware.RequireAPIKey(), enhancedHandler.CreateShortURL)
+		
+		// 重定向路由（公开访问）
+		router.GET("/:code", enhancedHandler.Redirect)
+	}
+
+	// 受保护路由 - 需要 API Key
+	apiProtected := router.Group("/api")
+	apiProtected.Use(apiKeyMiddleware.RequireAPIKey())
 	{
 		// 短链接相关路由
-		api.POST("/shorten", enhancedHandler.CreateShortURL)
-		api.GET("/stats/:code", enhancedHandler.GetStats)
-		api.GET("/analytics/:code", enhancedHandler.GetAdvancedAnalytics)
-		api.GET("/visits/:code", enhancedHandler.GetRecentVisits)
-		api.DELETE("/urls/:code", enhancedHandler.DeleteURL)
+		apiProtected.GET("/stats/:code", enhancedHandler.GetStats)
+		apiProtected.GET("/analytics/:code", enhancedHandler.GetAdvancedAnalytics)
+		apiProtected.GET("/visits/:code", enhancedHandler.GetRecentVisits)
+		apiProtected.DELETE("/urls/:code", enhancedHandler.DeleteURL)
 		
 		// 管理员功能
-		api.GET("/urls", enhancedHandler.ListURLs)
-		api.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
+		apiProtected.GET("/urls", enhancedHandler.ListURLs)
+		apiProtected.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
+		
+		// API Key 管理
+		apiProtected.POST("/keys", apiKeyHandler.CreateKey)
+		apiProtected.GET("/keys", apiKeyHandler.ListKeys)
+		apiProtected.DELETE("/keys/:key", apiKeyHandler.RevokeKey)
+		apiProtected.GET("/keys/validate", apiKeyHandler.ValidateKey)
 	}
 
 	// 主页路由
@@ -82,9 +113,6 @@ func initApp() (*http.Server, error) {
 			"docs":    "/docs (if available)",
 		})
 	})
-
-	// 重定向路由 - 放在最后，避免与其他路由冲突
-	router.GET("/:code", enhancedHandler.Redirect)
 
 	// 创建HTTP服务器
 	server := &http.Server{
@@ -136,11 +164,10 @@ func main() {
 
 // getPortFromAddr 从地址字符串中提取端口号
 func getPortFromAddr(addr string) int {
-	// 简单的端口提取（在完整应用中可能需要更复杂的逻辑）
 	if len(addr) > 1 && addr[0] == ':' {
 		var port int
 		fmt.Sscanf(addr, ":%d", &port)
 		return port
 	}
-	return 8080 // 默认端口
+	return 8080
 }

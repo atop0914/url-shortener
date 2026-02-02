@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 	"url-shortener/internal/model"

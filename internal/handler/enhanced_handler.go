@@ -119,7 +119,7 @@ func (h *EnhancedHandler) GetRecentVisits(c *gin.Context) {
 	}
 
 	// 解析时间范围和分页参数
-	since, until, parseErr := h.parseTimeRangeParams(c)
+	since, _, parseErr := h.parseTimeRangeParams(c)
 	if parseErr != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: parseErr.Error()})
 		return
@@ -186,7 +186,6 @@ func (h *EnhancedHandler) CleanupExpiredURLs(c *gin.Context) {
 // 辅助方法：解析时间范围参数
 func (h *EnhancedHandler) parseTimeRangeParams(c *gin.Context) (*time.Time, *time.Time, error) {
 	var since, until *time.Time
-	var err error
 
 	if c.Query("since") != "" {
 		parsedSince, err := time.Parse("2006-01-02", c.Query("since"))

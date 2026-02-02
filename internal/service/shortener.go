@@ -4,18 +4,11 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 	"url-shortener/internal/model"
 	"url-shortener/internal/repository"
 	"url-shortener/internal/utils"
-)
-
-const (
-	Base62Chars             = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	DefaultShortCodeLength  = 6
-	MaxRetries              = 10
 )
 
 type ShortenerService struct {

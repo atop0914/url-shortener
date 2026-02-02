@@ -15,14 +15,10 @@ type AnalyticsRepository struct {
 	db *sql.DB
 }
 
-func NewAnalyticsRepository(db *sql.DB) (*AnalyticsRepository, error) {
+func NewAnalyticsRepository(db *sql.DB) *AnalyticsRepository {
 	repo := &AnalyticsRepository{db: db}
-	err := repo.initDB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize analytics database: %w", err)
-	}
-
-	return repo, nil
+	repo.initDB()
+	return repo
 }
 
 func (r *AnalyticsRepository) initDB() error {
