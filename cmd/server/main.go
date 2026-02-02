@@ -31,7 +31,6 @@ func initApp() (*http.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	defer db.Close()
 
 	// 初始化存储库
 	urlRepo := repository.NewURLRepository(db)
@@ -77,6 +76,10 @@ func initApp() (*http.Server, error) {
 	// 公开路由 - 不需要 API Key
 	apiPublic := router.Group("/api")
 	{
+		// API Key 管理（公开，因为还没有 key）
+		apiPublic.POST("/keys", apiKeyHandler.CreateKey)
+		apiPublic.GET("/keys/validate", apiKeyHandler.ValidateKey)
+		
 		// 短链接相关路由（创建需要 API Key）
 		apiPublic.POST("/shorten", apiKeyMiddleware.RequireAPIKey(), enhancedHandler.CreateShortURL)
 		
@@ -99,10 +102,8 @@ func initApp() (*http.Server, error) {
 		apiProtected.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
 		
 		// API Key 管理
-		apiProtected.POST("/keys", apiKeyHandler.CreateKey)
 		apiProtected.GET("/keys", apiKeyHandler.ListKeys)
 		apiProtected.DELETE("/keys/:key", apiKeyHandler.RevokeKey)
-		apiProtected.GET("/keys/validate", apiKeyHandler.ValidateKey)
 	}
 
 	// 主页路由

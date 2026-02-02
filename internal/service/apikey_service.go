@@ -29,9 +29,10 @@ func (s *APIKeyService) GenerateKey(req *model.CreateAPIKeyRequest) (*model.APIK
 	key := "sk_" + hex.EncodeToString(keyBytes)
 
 	// Calculate expiry
-	var expiresAt time.Time
+	var expiresAt *time.Time
 	if req.ExpiresIn > 0 {
-		expiresAt = time.Now().AddDate(0, 0, req.ExpiresIn)
+		exp := time.Now().AddDate(0, 0, req.ExpiresIn)
+		expiresAt = &exp
 	}
 
 	apikey := &model.APIKey{
@@ -46,12 +47,17 @@ func (s *APIKeyService) GenerateKey(req *model.CreateAPIKeyRequest) (*model.APIK
 		return nil, err
 	}
 
+	var expiresAtTime time.Time
+	if apikey.ExpiresAt != nil {
+		expiresAtTime = *apikey.ExpiresAt
+	}
+
 	return &model.APIKeyResponse{
 		ID:        apikey.ID,
 		Key:       apikey.Key,
 		Name:      apikey.Name,
 		CreatedAt: apikey.CreatedAt,
-		ExpiresAt: apikey.ExpiresAt,
+		ExpiresAt: expiresAtTime,
 		IsActive:  apikey.IsActive,
 	}, nil
 }

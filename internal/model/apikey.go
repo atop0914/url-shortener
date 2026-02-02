@@ -4,13 +4,13 @@ import "time"
 
 // APIKey represents an API key for authentication
 type APIKey struct {
-	ID        int64     `json:"id"`
-	Key       string    `json:"key"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	LastUsed  time.Time `json:"last_used"`
-	IsActive  bool      `json:"is_active"`
+	ID        int64      `json:"id"`
+	Key       string     `json:"key"`
+	Name      string     `json:"name"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	IsActive  bool       `json:"is_active"`
 }
 
 // CreateAPIKeyRequest represents the request to create a new API key

@@ -60,16 +60,23 @@ func (r *APIKeyRepository) GetByKey(key string) (*model.APIKey, error) {
 	FROM api_keys
 	WHERE key = ?
 	`
+	var expiresAt, lastUsed sql.NullTime
 	apikey := &model.APIKey{}
 	err := r.db.QueryRow(query, key).Scan(
 		&apikey.ID, &apikey.Key, &apikey.Name,
-		&apikey.CreatedAt, &apikey.ExpiresAt, &apikey.LastUsed, &apikey.IsActive,
+		&apikey.CreatedAt, &expiresAt, &lastUsed, &apikey.IsActive,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if expiresAt.Valid {
+		apikey.ExpiresAt = &expiresAt.Time
+	}
+	if lastUsed.Valid {
+		apikey.LastUsed = &lastUsed.Time
 	}
 	return apikey, nil
 }
@@ -90,12 +97,19 @@ func (r *APIKeyRepository) GetAll() ([]model.APIKey, error) {
 	var keys []model.APIKey
 	for rows.Next() {
 		apikey := model.APIKey{}
+		var expiresAt, lastUsed sql.NullTime
 		err := rows.Scan(
 			&apikey.ID, &apikey.Key, &apikey.Name,
-			&apikey.CreatedAt, &apikey.ExpiresAt, &apikey.LastUsed, &apikey.IsActive,
+			&apikey.CreatedAt, &expiresAt, &lastUsed, &apikey.IsActive,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if expiresAt.Valid {
+			apikey.ExpiresAt = &expiresAt.Time
+		}
+		if lastUsed.Valid {
+			apikey.LastUsed = &lastUsed.Time
 		}
 		keys = append(keys, apikey)
 	}
