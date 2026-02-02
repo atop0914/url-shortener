@@ -5,6 +5,7 @@
 ## 功能特性
 
 - 🚀 快速 URL 短链接生成
+- 🔐 **API Key 认证** - 保护 API 访问安全
 - 📊 访问统计跟踪
 - 📈 高级统计分析（地理分布、设备类型、浏览器统计、访问来源等）
 - 🔗 一键重定向
@@ -28,9 +29,10 @@
 
 ## API 接口
 
-### 创建短链接（支持自定义短码和过期时间）
+### 创建短链接（需要 API Key）
 ```
 POST /api/shorten
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
 Content-Type: application/json
 
 {
@@ -51,14 +53,15 @@ Content-Type: application/json
 }
 ```
 
-### 重定向到原始链接
+### 重定向到原始链接（公开访问）
 ```
 GET /{short_code}
 ```
 
-### 获取短链接统计信息
+### 获取短链接统计信息（需要 API Key）
 ```
 GET /api/stats/{short_code}
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
 ```
 
 响应：
@@ -73,9 +76,10 @@ GET /api/stats/{short_code}
 }
 ```
 
-### 获取高级分析数据
+### 获取高级分析数据（需要 API Key）
 ```
 GET /api/analytics/{short_code}[?since=2026-01-01&until=2026-01-31]
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
 ```
 
 响应：
@@ -102,9 +106,10 @@ GET /api/analytics/{short_code}[?since=2026-01-01&until=2026-01-31]
 }
 ```
 
-### 获取最近访问记录
+### 获取最近访问记录（需要 API Key）
 ```
 GET /api/visits/{short_code}?limit=50&since=2026-01-01
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
 ```
 
 响应：
@@ -121,7 +126,7 @@ GET /api/visits/{short_code}?limit=50&since=2026-01-01
 }
 ```
 
-### 健康检查
+### 健康检查（公开访问）
 ```
 GET /health
 ```
@@ -135,6 +140,65 @@ GET /health
 }
 ```
 
+### 🔑 API Key 管理
+
+#### 创建 API Key（无需认证）
+```
+POST /api/keys
+Content-Type: application/json
+
+{
+  "name": "my-key-name",        // 必填：密钥名称
+  "expires_in": 30              // 可选：过期天数，0表示永不过期
+}
+```
+
+响应：
+```json
+{
+  "message": "API key created successfully",
+  "data": {
+    "id": 1,
+    "key": "sk_c6e7248365ff24d6f323b296a0ee60c931f7a47905fdb05d62fd564c9a621c5b",
+    "name": "my-key-name",
+    "created_at": "2026-02-02T22:00:00Z",
+    "expires_at": "2026-03-04T22:00:00Z",
+    "is_active": true
+  }
+}
+```
+
+⚠️ **注意：** `key` 字段只在创建时返回一次，请妥善保管！
+
+#### 验证 API Key（无需认证）
+```
+GET /api/keys/validate?key=sk_xxxxxxxxxxxxxxxxxxxx
+```
+
+响应：
+```json
+{
+  "valid": true,
+  "data": {
+    "name": "my-key-name",
+    "created_at": "2026-02-02T22:00:00Z",
+    "last_used": "2026-02-02T22:30:00Z"
+  }
+}
+```
+
+#### 列出所有 API Keys（需要 API Key）
+```
+GET /api/keys
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
+```
+
+#### 撤销 API Key（需要 API Key）
+```
+DELETE /api/keys/{key}
+Authorization: Bearer sk_xxxxxxxxxxxxxxxxxxxx
+```
+
 ## 项目结构
 
 ```
@@ -145,21 +209,28 @@ url-shortener/
 ├── internal/
 │   ├── model/                  # 数据模型定义
 │   │   ├── url.go              # URL实体定义
-│   │   └── analytics.go        # 分析数据模型
+│   │   ├── analytics.go        # 分析数据模型
+│   │   └── apikey.go           # API Key 模型（新增）
 │   ├── service/                # 业务逻辑层
 │   │   ├── shortener.go        # 基础短链接服务
 │   │   ├── enhanced_shortener.go # 增强短链接服务
-│   │   └── analytics_service.go # 分析服务
+│   │   ├── analytics_service.go # 分析服务
+│   │   └── apikey_service.go   # API Key 服务（新增）
 │   ├── handler/                # HTTP处理器
 │   │   ├── handler.go          # 基础处理器
-│   │   └── enhanced_handler.go # 增强处理器
+│   │   ├── enhanced_handler.go # 增强处理器
+│   │   └── apikey_handler.go   # API Key 处理器（新增）
 │   ├── repository/             # 数据访问层
 │   │   ├── url_repo.go         # URL数据访问
-│   │   └── analytics_repo.go   # 分析数据访问
+│   │   ├── analytics_repo.go   # 分析数据访问
+│   │   └── apikey_repo.go      # API Key 访问（新增）
+│   ├── middleware/             # 中间件
+│   │   └── auth.go             # API Key 认证中间件（新增）
 │   ├── utils/                  # 工具函数
 │   │   ├── errors.go           # 错误定义和处理
 │   │   ├── validation.go       # 输入验证
-│   │   └── user_agent_parser.go # 用户代理解析
+│   │   ├── user_agent_parser.go # 用户代理解析
+│   │   └── response.go         # 统一响应格式（新增）
 │   └── config/                 # 配置管理
 │       └── config.go           # 应用配置
 ├── go.mod
@@ -203,6 +274,7 @@ go run cmd/server/main.go
 - 速率限制：防止滥用
 - SQL 注入防护：使用参数化查询
 - XSS 防护：输出转义
+- **API Key 认证**：保护敏感 API 端点
 
 ## 性能优化
 
