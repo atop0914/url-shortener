@@ -183,6 +183,11 @@ func (r *URLRepository) DeleteExpiredURLs() error {
 	return nil
 }
 
+// DB 返回数据库连接
+func (r *URLRepository) DB() *sql.DB {
+	return r.db
+}
+
 // Close 关闭数据库连接
 func (r *URLRepository) Close() error {
 	return r.db.Close()
