@@ -6,57 +6,80 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"url-shortener/internal/model"
 
-	_ "github.com/mattn/go-sqlite3"
+	"url-shortener/internal/database"
+	"url-shortener/internal/model"
 )
 
 type AnalyticsRepository struct {
-	db *sql.DB
+	db      *sql.DB
+	dialect database.Dialect
 }
 
 func NewAnalyticsRepository(db *sql.DB) *AnalyticsRepository {
-	repo := &AnalyticsRepository{db: db}
+	dbType := database.ParseDBType("")
+	dialect := database.GetDialect(dbType)
+
+	repo := &AnalyticsRepository{
+		db:      db,
+		dialect: dialect,
+	}
+	repo.initDB()
+	return repo
+}
+
+func NewAnalyticsRepositoryWithDialect(db *sql.DB, dbType database.DBType) *AnalyticsRepository {
+	dialect := database.GetDialect(dbType)
+
+	repo := &AnalyticsRepository{
+		db:      db,
+		dialect: dialect,
+	}
 	repo.initDB()
 	return repo
 }
 
 func (r *AnalyticsRepository) initDB() error {
-	query := `
-	CREATE TABLE IF NOT EXISTS visit_records (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		short_code TEXT NOT NULL,
-		ip_address TEXT,
-		user_agent TEXT,
-		referer TEXT,
-		country TEXT,
-		city TEXT,
-		user_os TEXT,
-		browser TEXT,
-		device_type TEXT,
-		visited_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_visit_short_code ON visit_records(short_code);
-	CREATE INDEX IF NOT EXISTS idx_visit_visited_at ON visit_records(visited_at);
-	CREATE INDEX IF NOT EXISTS idx_visit_ip_address ON visit_records(ip_address);
-	`
+	ifNotExists := r.dialect.GetIfNotExists()
+	dateTimeType := r.dialect.GetDateTimeType()
+
+	query := fmt.Sprintf(`
+		CREATE TABLE %s visit_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			short_code TEXT NOT NULL,
+			ip_address TEXT,
+			user_agent TEXT,
+			referer TEXT,
+			country TEXT,
+			city TEXT,
+			user_os TEXT,
+			browser TEXT,
+			device_type TEXT,
+			visited_at %s DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_visit_short_code ON visit_records(short_code);
+		CREATE INDEX IF NOT EXISTS idx_visit_visited_at ON visit_records(visited_at);
+		CREATE INDEX IF NOT EXISTS idx_visit_ip_address ON visit_records(ip_address);
+	`, ifNotExists, dateTimeType)
+
 	_, err := r.db.Exec(query)
 	return err
 }
 
 // RecordVisit 记录一次访问
 func (r *AnalyticsRepository) RecordVisit(record *model.VisitRecord) error {
-	query := `INSERT INTO visit_records (short_code, ip_address, user_agent, referer, country, city, user_os, browser, device_type, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, 
-		record.ShortCode, 
-		record.IPAddress, 
-		record.UserAgent, 
-		record.Referer, 
-		record.Country, 
-		record.City, 
-		record.UserOS, 
-		record.Browser, 
-		record.DeviceType, 
+	placeholders := database.BuildPlaceholders(r.dialect, 10)
+	query := fmt.Sprintf(`INSERT INTO visit_records (short_code, ip_address, user_agent, referer, country, city, user_os, browser, device_type, visited_at) VALUES (%s)`, placeholders)
+	_, err := r.db.Exec(query,
+		record.ShortCode,
+		record.IPAddress,
+		record.UserAgent,
+		record.Referer,
+		record.Country,
+		record.City,
+		record.UserOS,
+		record.Browser,
+		record.DeviceType,
 		record.VisitedAt,
 	)
 	if err != nil {
@@ -79,16 +102,19 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 构建基础查询
-	query := `SELECT COUNT(*) as total_visits FROM visit_records WHERE short_code = ?`
+	p1 := r.dialect.GetPlaceholder(0)
+	query := fmt.Sprintf(`SELECT COUNT(*) as total_visits FROM visit_records WHERE short_code = %s`, p1)
 	args := []interface{}{shortCode}
 
 	// 添加时间范围条件
 	if since != nil {
-		query += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(args))
+		query += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		args = append(args, since)
 	}
 	if until != nil {
-		query += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(args))
+		query += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		args = append(args, until)
 	}
 
@@ -101,15 +127,17 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	summary.TotalVisits = totalVisits
 
 	// 获取唯一访客数量
-	uniqueQuery := `SELECT COUNT(DISTINCT ip_address) FROM visit_records WHERE short_code = ?`
+	uniqueQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT ip_address) FROM visit_records WHERE short_code = %s`, p1)
 	uniqueArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		uniqueQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(uniqueArgs))
+		uniqueQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		uniqueArgs = append(uniqueArgs, since)
 	}
 	if until != nil {
-		uniqueQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(uniqueArgs))
+		uniqueQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		uniqueArgs = append(uniqueArgs, until)
 	}
 
@@ -121,15 +149,17 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	summary.UniqueVisitors = uniqueVisitors
 
 	// 获取按国家统计
-	countryQuery := `SELECT country, COUNT(*) as count FROM visit_records WHERE short_code = ? AND country IS NOT NULL`
+	countryQuery := fmt.Sprintf(`SELECT country, COUNT(*) as count FROM visit_records WHERE short_code = %s AND country IS NOT NULL`, p1)
 	countryArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		countryQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(countryArgs))
+		countryQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		countryArgs = append(countryArgs, since)
 	}
 	if until != nil {
-		countryQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(countryArgs))
+		countryQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		countryArgs = append(countryArgs, until)
 	}
 	countryQuery += ` GROUP BY country ORDER BY count DESC LIMIT 10`
@@ -153,15 +183,17 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 获取按设备类型统计
-	deviceQuery := `SELECT device_type, COUNT(*) as count FROM visit_records WHERE short_code = ? AND device_type IS NOT NULL`
+	deviceQuery := fmt.Sprintf(`SELECT device_type, COUNT(*) as count FROM visit_records WHERE short_code = %s AND device_type IS NOT NULL`, p1)
 	deviceArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		deviceQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(deviceArgs))
+		deviceQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		deviceArgs = append(deviceArgs, since)
 	}
 	if until != nil {
-		deviceQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(deviceArgs))
+		deviceQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		deviceArgs = append(deviceArgs, until)
 	}
 	deviceQuery += ` GROUP BY device_type ORDER BY count DESC LIMIT 10`
@@ -185,15 +217,17 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 获取按浏览器统计
-	browserQuery := `SELECT browser, COUNT(*) as count FROM visit_records WHERE short_code = ? AND browser IS NOT NULL`
+	browserQuery := fmt.Sprintf(`SELECT browser, COUNT(*) as count FROM visit_records WHERE short_code = %s AND browser IS NOT NULL`, p1)
 	browserArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		browserQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(browserArgs))
+		browserQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		browserArgs = append(browserArgs, since)
 	}
 	if until != nil {
-		browserQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(browserArgs))
+		browserQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		browserArgs = append(browserArgs, until)
 	}
 	browserQuery += ` GROUP BY browser ORDER BY count DESC LIMIT 10`
@@ -217,15 +251,17 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 获取按操作系统统计
-	osQuery := `SELECT user_os, COUNT(*) as count FROM visit_records WHERE short_code = ? AND user_os IS NOT NULL`
+	osQuery := fmt.Sprintf(`SELECT user_os, COUNT(*) as count FROM visit_records WHERE short_code = %s AND user_os IS NOT NULL`, p1)
 	osArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		osQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(osArgs))
+		osQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		osArgs = append(osArgs, since)
 	}
 	if until != nil {
-		osQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(osArgs))
+		osQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		osArgs = append(osArgs, until)
 	}
 	osQuery += ` GROUP BY user_os ORDER BY count DESC LIMIT 10`
@@ -249,18 +285,21 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 获取每日访问统计
-	dailyQuery := `SELECT DATE(visited_at) as date, COUNT(*) as count FROM visit_records WHERE short_code = ?`
+	dateFunc := r.dialect.GetDateFunction("visited_at")
+	dailyQuery := fmt.Sprintf(`SELECT %s as date, COUNT(*) as count FROM visit_records WHERE short_code = %s`, dateFunc, p1)
 	dailyArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		dailyQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(dailyArgs))
+		dailyQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		dailyArgs = append(dailyArgs, since)
 	}
 	if until != nil {
-		dailyQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(dailyArgs))
+		dailyQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		dailyArgs = append(dailyArgs, until)
 	}
-	dailyQuery += ` GROUP BY DATE(visited_at) ORDER BY date`
+	dailyQuery += ` GROUP BY date ORDER BY date`
 
 	rows, err = r.db.Query(dailyQuery, dailyArgs...)
 	if err != nil {
@@ -283,18 +322,21 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	}
 
 	// 获取每小时访问统计
-	hourlyQuery := `SELECT strftime('%H', visited_at) as hour, COUNT(*) as count FROM visit_records WHERE short_code = ?`
+	hourFunc := r.dialect.GetDateHourFunction("visited_at")
+	hourlyQuery := fmt.Sprintf(`SELECT %s as hour, COUNT(*) as count FROM visit_records WHERE short_code = %s`, hourFunc, p1)
 	hourlyArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		hourlyQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(hourlyArgs))
+		hourlyQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		hourlyArgs = append(hourlyArgs, since)
 	}
 	if until != nil {
-		hourlyQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(hourlyArgs))
+		hourlyQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		hourlyArgs = append(hourlyArgs, until)
 	}
-	hourlyQuery += ` GROUP BY strftime('%H', visited_at) ORDER BY hour`
+	hourlyQuery += ` GROUP BY hour ORDER BY hour`
 
 	rows, err = r.db.Query(hourlyQuery, hourlyArgs...)
 	if err != nil {
@@ -303,27 +345,41 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 	defer rows.Close()
 
 	for rows.Next() {
-		var hourStr string
+		var hour interface{}
 		var count int
-		err := rows.Scan(&hourStr, &count)
+		err := rows.Scan(&hour, &count)
 		if err != nil {
 			continue
 		}
-		hour := 0
-		fmt.Sscanf(hourStr, "%d", &hour) // 将字符串转换为整数
-		summary.HourlyVisits[hour] = count
+
+		var h int
+		switch v := hour.(type) {
+		case int64:
+			h = int(v)
+		case int32:
+			h = int(v)
+		case int:
+			h = v
+		case string:
+			fmt.Sscanf(v, "%d", &h)
+		default:
+			h = 0
+		}
+		summary.HourlyVisits[h] = count
 	}
 
 	// 获取顶级引荐来源
-	referrerQuery := `SELECT referer, COUNT(*) as count FROM visit_records WHERE short_code = ? AND referer IS NOT NULL AND referer != ''`
+	referrerQuery := fmt.Sprintf(`SELECT referer, COUNT(*) as count FROM visit_records WHERE short_code = %s AND referer IS NOT NULL AND referer != ''`, p1)
 	referrerArgs := []interface{}{shortCode}
-	
+
 	if since != nil {
-		referrerQuery += ` AND visited_at >= ?`
+		pN := r.dialect.GetPlaceholder(len(referrerArgs))
+		referrerQuery += fmt.Sprintf(` AND visited_at >= %s`, pN)
 		referrerArgs = append(referrerArgs, since)
 	}
 	if until != nil {
-		referrerQuery += ` AND visited_at <= ?`
+		pN := r.dialect.GetPlaceholder(len(referrerArgs))
+		referrerQuery += fmt.Sprintf(` AND visited_at <= %s`, pN)
 		referrerArgs = append(referrerArgs, until)
 	}
 	referrerQuery += ` GROUP BY referer ORDER BY count DESC LIMIT 10`
@@ -348,8 +404,12 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 				summary.TopReferrers[parsedURL.Host] = count
 			} else {
 				// 如果解析失败，使用原始值的前缀
-				host := strings.Split(referer, "/")[2]
-				if len(host) > 0 {
+				parts := strings.SplitN(referer, "/", 3)
+				if len(parts) >= 2 {
+					host := parts[2]
+					if idx := strings.Index(host, "?"); idx > 0 {
+						host = host[:idx]
+					}
 					summary.TopReferrers[host] = count
 				} else {
 					summary.TopReferrers[referer] = count
@@ -363,15 +423,18 @@ func (r *AnalyticsRepository) GetAnalyticsSummary(shortCode string, since *time.
 
 // GetRecentVisits 获取最近访问记录
 func (r *AnalyticsRepository) GetRecentVisits(shortCode string, limit int, since *time.Time) ([]*model.VisitRecord, error) {
-	query := `SELECT id, short_code, ip_address, user_agent, referer, country, city, user_os, browser, device_type, visited_at FROM visit_records WHERE short_code = ?`
+	p1 := r.dialect.GetPlaceholder(0)
+	p2 := r.dialect.GetPlaceholder(1)
+
+	query := fmt.Sprintf(`SELECT id, short_code, ip_address, user_agent, referer, country, city, user_os, browser, device_type, visited_at FROM visit_records WHERE short_code = %s`, p1)
 	args := []interface{}{shortCode}
 
 	if since != nil {
-		query += ` AND visited_at >= ?`
+		query += fmt.Sprintf(` AND visited_at >= %s`, p2)
 		args = append(args, since)
 	}
 
-	query += ` ORDER BY visited_at DESC LIMIT ?`
+	query += fmt.Sprintf(` ORDER BY visited_at DESC LIMIT %s`, r.dialect.GetPlaceholder(len(args)))
 	args = append(args, limit)
 
 	rows, err := r.db.Query(query, args...)
@@ -383,8 +446,8 @@ func (r *AnalyticsRepository) GetRecentVisits(shortCode string, limit int, since
 	var visits []*model.VisitRecord
 	for rows.Next() {
 		var visit model.VisitRecord
-		var visitedAtStr string
-		
+		var visitedAt interface{}
+
 		err := rows.Scan(
 			&visit.ID,
 			&visit.ShortCode,
@@ -396,20 +459,42 @@ func (r *AnalyticsRepository) GetRecentVisits(shortCode string, limit int, since
 			&visit.UserOS,
 			&visit.Browser,
 			&visit.DeviceType,
-			&visitedAtStr,
+			&visitedAt,
 		)
 		if err != nil {
 			continue
 		}
 
 		// 解析时间
-		visitedAt, err := time.Parse("2006-01-02 15:04:05", visitedAtStr)
-		if err == nil {
-			visit.VisitedAt = visitedAt
-		}
+		visit.VisitedAt = r.parseVisitedAt(visitedAt)
 
 		visits = append(visits, &visit)
 	}
 
 	return visits, nil
+}
+
+func (r *AnalyticsRepository) parseVisitedAt(value interface{}) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+
+	switch v := value.(type) {
+	case time.Time:
+		return v
+	case string:
+		formats := []string{
+			time.RFC3339,
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05Z",
+		}
+		for _, format := range formats {
+			if t, err := time.Parse(format, v); err == nil {
+				return t
+			}
+		}
+		return time.Time{}
+	default:
+		return time.Time{}
+	}
 }

@@ -11,11 +11,15 @@ import (
 	"syscall"
 	"time"
 	"url-shortener/internal/config"
+	"url-shortener/internal/database"
 	"url-shortener/internal/handler"
 	"url-shortener/internal/middleware"
 	"url-shortener/internal/repository"
 	"url-shortener/internal/service"
 
+	// 导入所有支持的数据库驱动
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -27,15 +31,16 @@ func initApp() (*http.Server, error) {
 	cfg := config.LoadConfig()
 
 	// 初始化数据库连接
-	db, err := sql.Open("sqlite3", cfg.DatabaseURL)
+	db, err := database.NewConnection(cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 初始化存储库
-	urlRepo := repository.NewURLRepository(db)
-	analyticsRepo := repository.NewAnalyticsRepository(db)
-	apiKeyRepo := repository.NewAPIKeyRepository(db)
+	// 根据数据库类型获取方言并初始化存储库
+	dbType := database.ParseDBType(cfg.DatabaseURL)
+	urlRepo := repository.NewURLRepositoryWithDialect(db, dbType)
+	analyticsRepo := repository.NewAnalyticsRepositoryWithDialect(db, dbType)
+	apiKeyRepo := repository.NewAPIKeyRepositoryWithDialect(db, dbType)
 
 	// 初始化 API Key 表
 	if err := apiKeyRepo.InitSchema(); err != nil {
@@ -66,7 +71,7 @@ func initApp() (*http.Server, error) {
 	// 中间件
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-	
+
 	// CORS 中间件
 	router.Use(cors.Default())
 
@@ -79,10 +84,10 @@ func initApp() (*http.Server, error) {
 		// API Key 管理（公开，因为还没有 key）
 		apiPublic.POST("/keys", apiKeyHandler.CreateKey)
 		apiPublic.GET("/keys/validate", apiKeyHandler.ValidateKey)
-		
+
 		// 短链接相关路由（创建需要 API Key）
 		apiPublic.POST("/shorten", apiKeyMiddleware.RequireAPIKey(), enhancedHandler.CreateShortURL)
-		
+
 		// 重定向路由（公开访问）
 		router.GET("/:code", enhancedHandler.Redirect)
 	}
@@ -96,11 +101,11 @@ func initApp() (*http.Server, error) {
 		apiProtected.GET("/analytics/:code", enhancedHandler.GetAdvancedAnalytics)
 		apiProtected.GET("/visits/:code", enhancedHandler.GetRecentVisits)
 		apiProtected.DELETE("/urls/:code", enhancedHandler.DeleteURL)
-		
+
 		// 管理员功能
 		apiProtected.GET("/urls", enhancedHandler.ListURLs)
 		apiProtected.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
-		
+
 		// API Key 管理
 		apiProtected.GET("/keys", apiKeyHandler.ListKeys)
 		apiProtected.DELETE("/keys/:key", apiKeyHandler.RevokeKey)
@@ -109,9 +114,10 @@ func initApp() (*http.Server, error) {
 	// 主页路由
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Welcome to URL Shortener Service",
-			"version": "1.0.0",
-			"docs":    "/docs (if available)",
+			"message":  "Welcome to URL Shortener Service",
+			"version":  "1.0.0",
+			"docs":     "/docs (if available)",
+			"database": string(dbType),
 		})
 	})
 
@@ -171,4 +177,77 @@ func getPortFromAddr(addr string) int {
 		return port
 	}
 	return 8080
+}
+
+// 保留原有函数以兼容
+func initAppOld() (*http.Server, error) {
+	cfg := config.LoadConfig()
+	db, err := sql.Open("sqlite3", cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	urlRepo := repository.NewURLRepository(db)
+	analyticsRepo := repository.NewAnalyticsRepository(db)
+	apiKeyRepo := repository.NewAPIKeyRepository(db)
+
+	if err := apiKeyRepo.InitSchema(); err != nil {
+		return nil, fmt.Errorf("failed to initialize API key schema: %w", err)
+	}
+
+	shortenerService := service.NewEnhancedShortenerService(urlRepo, analyticsRepo, cfg.BaseURL)
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo)
+
+	enhancedHandler := handler.NewEnhancedHandler(shortenerService)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
+	apiKeyMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService)
+
+	if cfg.Debug {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+	router.Use(cors.Default())
+
+	router.GET("/health", enhancedHandler.HealthCheck)
+
+	apiPublic := router.Group("/api")
+	{
+		apiPublic.POST("/keys", apiKeyHandler.CreateKey)
+		apiPublic.GET("/keys/validate", apiKeyHandler.ValidateKey)
+		apiPublic.POST("/shorten", apiKeyMiddleware.RequireAPIKey(), enhancedHandler.CreateShortURL)
+		router.GET("/:code", enhancedHandler.Redirect)
+	}
+
+	apiProtected := router.Group("/api")
+	apiProtected.Use(apiKeyMiddleware.RequireAPIKey())
+	{
+		apiProtected.GET("/stats/:code", enhancedHandler.GetStats)
+		apiProtected.GET("/analytics/:code", enhancedHandler.GetAdvancedAnalytics)
+		apiProtected.GET("/visits/:code", enhancedHandler.GetRecentVisits)
+		apiProtected.DELETE("/urls/:code", enhancedHandler.DeleteURL)
+		apiProtected.GET("/urls", enhancedHandler.ListURLs)
+		apiProtected.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
+		apiProtected.GET("/keys", apiKeyHandler.ListKeys)
+		apiProtected.DELETE("/keys/:key", apiKeyHandler.RevokeKey)
+	}
+
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Welcome to URL Shortener Service",
+			"version": "1.0.0",
+			"docs":    "/docs (if available)",
+		})
+	})
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Handler: router,
+	}
+
+	return server, nil
 }
