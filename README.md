@@ -9,7 +9,7 @@
 - 📊 访问统计跟踪
 - 📈 高级统计分析（地理分布、设备类型、浏览器统计、访问来源等）
 - 🔗 一键重定向
-- 🛡️ SQLite 数据库存储
+- 🛡️ **多数据库支持** - SQLite、MySQL、PostgreSQL
 - 🌐 RESTful API 接口
 - ⏰ 链接有效期控制（24小时、7天、30天等）
 - 🎯 自定义短码功能（支持字母、数字、下划线、连字符）
@@ -24,8 +24,99 @@
 
 - **语言**: Go
 - **Web 框架**: Gin
-- **数据库**: SQLite
+- **数据库**: SQLite / MySQL / PostgreSQL
 - **编码**: Base62
+
+## 快速开始
+
+### 环境要求
+
+- Go 1.23+
+- SQLite (默认), MySQL 5.7+ 或 PostgreSQL 12+
+
+### 安装依赖
+
+```bash
+go mod tidy
+```
+
+### 运行服务
+
+```bash
+go run cmd/server/main.go
+```
+
+服务将在 `http://localhost:8080` 启动。
+
+## 数据库配置
+
+### 默认配置 (SQLite)
+
+默认使用 SQLite 数据库，无需额外配置：
+
+```bash
+export DATABASE_URL="./urls.db"
+# 或使用默认路径
+```
+
+### MySQL 配置
+
+使用 MySQL 数据库，设置 `DATABASE_URL` 环境变量：
+
+```bash
+export DATABASE_URL="mysql://username:password@host:port/database?parseTime=true"
+# 简化格式也支持：
+export DATABASE_URL="username:password@tcp(host:port)/database?parseTime=true"
+```
+
+示例：
+
+```bash
+export DATABASE_URL="root:secret@tcp(localhost:3306)/urlshortener?parseTime=true"
+go run cmd/server/main.go
+```
+
+### PostgreSQL 配置
+
+使用 PostgreSQL 数据库：
+
+```bash
+export DATABASE_URL="postgres://username:password@host:port/database?sslmode=disable"
+# 简化格式也支持：
+export DATABASE_URL="user=username password=password host=host port=5432 dbname=database sslmode=disable"
+```
+
+示例：
+
+```bash
+export DATABASE_URL="postgres://postgres:secret@localhost:5432/urlshortener?sslmode=disable"
+go run cmd/server/main.go
+```
+
+### Docker 部署
+
+```bash
+# MySQL
+docker run -d -p 8080:8080 \
+  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?parseTime=true" \
+  -e BASE_URL=http://your-domain.com \
+  url-shortener
+
+# PostgreSQL
+docker run -d -p 8080:8080 \
+  -e DATABASE_URL="postgres://postgres:secret@postgresql:5432/urlshortener?sslmode=disable" \
+  -e BASE_URL=http://your-domain.com \
+  url-shortener
+```
+
+## 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | 服务端口 | 8080 |
+| `DATABASE_URL` | 数据库连接字符串 | `./urls.db` (SQLite) |
+| `BASE_URL` | 基础URL，用于生成短链接 | `http://localhost:8080` |
+| `DEBUG` | 调试模式 | false |
 
 ## API 接口
 
@@ -136,7 +227,8 @@ GET /health
 {
   "status": "healthy",
   "message": "URL shortener service is running",
-  "timestamp": 1706323200
+  "timestamp": 1706323200,
+  "database": "mysql"
 }
 ```
 
@@ -207,30 +299,33 @@ url-shortener/
 │   └── server/
 │       └── main.go             # 应用入口点
 ├── internal/
+│   ├── database/               # 数据库抽象层（新增）
+│   │   ├── database.go         # 数据库连接管理
+│   │   └── dialect.go          # SQL 方言适配器
 │   ├── model/                  # 数据模型定义
 │   │   ├── url.go              # URL实体定义
 │   │   ├── analytics.go        # 分析数据模型
-│   │   └── apikey.go           # API Key 模型（新增）
+│   │   └── apikey.go           # API Key 模型
 │   ├── service/                # 业务逻辑层
 │   │   ├── shortener.go        # 基础短链接服务
 │   │   ├── enhanced_shortener.go # 增强短链接服务
 │   │   ├── analytics_service.go # 分析服务
-│   │   └── apikey_service.go   # API Key 服务（新增）
+│   │   └── apikey_service.go   # API Key 服务
 │   ├── handler/                # HTTP处理器
 │   │   ├── handler.go          # 基础处理器
 │   │   ├── enhanced_handler.go # 增强处理器
-│   │   └── apikey_handler.go   # API Key 处理器（新增）
+│   │   └── apikey_handler.go   # API Key 处理器
 │   ├── repository/             # 数据访问层
 │   │   ├── url_repo.go         # URL数据访问
 │   │   ├── analytics_repo.go   # 分析数据访问
-│   │   └── apikey_repo.go      # API Key 访问（新增）
+│   │   └── apikey_repo.go      # API Key 访问
 │   ├── middleware/             # 中间件
-│   │   └── auth.go             # API Key 认证中间件（新增）
+│   │   └── auth.go             # API Key 认证中间件
 │   ├── utils/                  # 工具函数
 │   │   ├── errors.go           # 错误定义和处理
 │   │   ├── validation.go       # 输入验证
 │   │   ├── user_agent_parser.go # 用户代理解析
-│   │   └── response.go         # 统一响应格式（新增）
+│   │   └── response.go         # 统一响应格式
 │   └── config/                 # 配置管理
 │       └── config.go           # 应用配置
 ├── go.mod
@@ -239,32 +334,86 @@ url-shortener/
 └── README.md
 ```
 
-## 部署
+## 多数据库支持实现
 
-### 环境变量
+本项目使用数据库抽象层来支持多种数据库：
 
-- `PORT`: 服务端口，默认 8080
-- `DATABASE_URL`: 数据库连接字符串，默认使用本地SQLite
-- `BASE_URL`: 基础URL，用于生成短链接
+### 数据库类型检测
 
-### Docker 部署
+系统会自动根据 `DATABASE_URL` 的格式检测数据库类型：
+
+- 以 `mysql:` 或 `tcp(` 开头 → MySQL
+- 以 `postgres:` 或 `postgresql:` 开头 → PostgreSQL
+- 其他情况（本地文件路径） → SQLite
+
+### 方言适配器
+
+不同数据库的 SQL 语法差异由 `Dialect` 接口处理：
+
+| 特性 | SQLite | MySQL | PostgreSQL |
+|------|--------|-------|------------|
+| 占位符 | `?` | `?` | `$1`, `$2`... |
+| 自增字段 | AUTOINCREMENT | AUTO_INCREMENT | SERIAL |
+| 布尔类型 | INTEGER | TINYINT(1) | BOOLEAN |
+| 日期函数 | DATE() | DATE() | DATE() |
+| 时间提取 | strftime() | HOUR() | EXTRACT() |
+
+### 添加新数据库支持
+
+要支持新的数据库，只需：
+
+1. 添加对应的驱动 import
+2. 实现 `Dialect` 接口
+3. 更新 `ParseDBType()` 函数
+
+## Docker 完整部署示例
+
+### 使用 MySQL
 
 ```bash
-# 构建镜像
-docker build -t url-shortener .
+# 1. 创建网络
+docker network create url-shortener-network
 
-# 运行容器
-docker run -d -p 8080:8080 -e BASE_URL=http://your-domain.com url-shortener
+# 2. 启动 MySQL
+docker run -d \
+  --name mysql \
+  --network url-shortener-network \
+  -e MYSQL_ROOT_PASSWORD=secret \
+  -e MYSQL_DATABASE=urlshortener \
+  mysql:8
+
+# 3. 启动应用
+docker run -d \
+  --name url-shortener \
+  --network url-shortener-network \
+  -p 8080:8080 \
+  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?parseTime=true" \
+  -e BASE_URL=http://localhost:8080 \
+  url-shortener
 ```
 
-### 直接运行
+### 使用 PostgreSQL
 
 ```bash
-# 安装依赖
-go mod tidy
+# 1. 创建网络
+docker network create url-shortener-network
 
-# 运行服务
-go run cmd/server/main.go
+# 2. 启动 PostgreSQL
+docker run -d \
+  --name postgresql \
+  --network url-shortener-network \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=urlshortener \
+  postgres:15
+
+# 3. 启动应用
+docker run -d \
+  --name url-shortener \
+  --network url-shortener-network \
+  -p 8080:8080 \
+  -e DATABASE_URL="postgres://postgres:secret@postgresql:5432/urlshortener?sslmode=disable" \
+  -e BASE_URL=http://localhost:8080 \
+  url-shortener
 ```
 
 ## 安全考虑
@@ -288,3 +437,7 @@ go run cmd/server/main.go
 - 统一错误响应格式
 - 详细的错误日志
 - 优雅的错误恢复
+
+## 许可证
+
+MIT License
