@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -162,7 +163,7 @@ func (s *EnhancedShortenerService) validateCustomCode(customCode string) error {
 	if err == nil {
 		// 如果没有报错，说明短码已存在
 		return utils.ErrCustomCodeExists
-	} else if err != utils.ErrURLNotFound {
+	} else if !errors.Is(err, utils.ErrURLNotFound) {
 		// 如果是其他错误，返回错误
 		return fmt.Errorf("failed to check if custom code exists: %w", err)
 	}
@@ -253,7 +254,7 @@ func (s *EnhancedShortenerService) generateUniqueShortCode() (string, error) {
 		// 检查短码是否已存在
 		_, err := s.repo.GetByShortCode(shortCode)
 		if err != nil {
-			if err == utils.ErrURLNotFound {
+			if errors.Is(err, utils.ErrURLNotFound) {
 				// 如果是 ErrURLNotFound 错误，说明短码不存在，可以使用
 				return shortCode, nil
 			}

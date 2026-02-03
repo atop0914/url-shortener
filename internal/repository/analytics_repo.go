@@ -43,10 +43,11 @@ func NewAnalyticsRepositoryWithDialect(db *sql.DB, dbType database.DBType) *Anal
 func (r *AnalyticsRepository) initDB() error {
 	ifNotExists := r.dialect.GetIfNotExists()
 	dateTimeType := r.dialect.GetDateTimeType()
+	autoInc := r.dialect.GetAutoIncrement("id")
 
 	query := fmt.Sprintf(`
 		CREATE TABLE %s visit_records (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id %s,
 			short_code TEXT NOT NULL,
 			ip_address TEXT,
 			user_agent TEXT,
@@ -61,7 +62,7 @@ func (r *AnalyticsRepository) initDB() error {
 		CREATE INDEX IF NOT EXISTS idx_visit_short_code ON visit_records(short_code);
 		CREATE INDEX IF NOT EXISTS idx_visit_visited_at ON visit_records(visited_at);
 		CREATE INDEX IF NOT EXISTS idx_visit_ip_address ON visit_records(ip_address);
-	`, ifNotExists, dateTimeType)
+	`, ifNotExists, autoInc, dateTimeType)
 
 	_, err := r.db.Exec(query)
 	return err

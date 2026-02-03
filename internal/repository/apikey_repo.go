@@ -42,10 +42,11 @@ func (r *APIKeyRepository) InitSchema() error {
 	dateTimeType := r.dialect.GetDateTimeType()
 	ifNotExists := r.dialect.GetIfNotExists()
 	defaultNow := r.dialect.GetDefaultNow()
+	autoInc := r.dialect.GetAutoIncrement("id")
 
 	query := fmt.Sprintf(`
 		CREATE TABLE %s api_keys (
-			id SERIAL PRIMARY KEY,
+			id %s,
 			key TEXT UNIQUE NOT NULL,
 			name TEXT NOT NULL,
 			created_at %s %s,
@@ -56,7 +57,7 @@ func (r *APIKeyRepository) InitSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 		CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
-	`, ifNotExists, dateTimeType, defaultNow, dateTimeType, dateTimeType, boolType)
+	`, ifNotExists, autoInc, dateTimeType, defaultNow, dateTimeType, dateTimeType, boolType)
 
 	_, err := r.db.Exec(query)
 	return err
@@ -88,17 +89,20 @@ func (r *APIKeyRepository) GetByKey(key string) (*model.APIKey, error) {
 		WHERE key = %s
 	`, p1)
 
-	var expiresAt, lastUsed sql.NullTime
+	var createdAt, expiresAt, lastUsed sql.NullTime
 	apikey := &model.APIKey{}
 	err := r.db.QueryRow(query, key).Scan(
 		&apikey.ID, &apikey.Key, &apikey.Name,
-		&apikey.CreatedAt, &expiresAt, &lastUsed, &apikey.IsActive,
+		&createdAt, &expiresAt, &lastUsed, &apikey.IsActive,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if createdAt.Valid {
+		apikey.CreatedAt = createdAt.Time
 	}
 	if expiresAt.Valid {
 		apikey.ExpiresAt = &expiresAt.Time
@@ -125,13 +129,16 @@ func (r *APIKeyRepository) GetAll() ([]model.APIKey, error) {
 	var keys []model.APIKey
 	for rows.Next() {
 		apikey := model.APIKey{}
-		var expiresAt, lastUsed sql.NullTime
+		var createdAt, expiresAt, lastUsed sql.NullTime
 		err := rows.Scan(
 			&apikey.ID, &apikey.Key, &apikey.Name,
-			&apikey.CreatedAt, &expiresAt, &lastUsed, &apikey.IsActive,
+			&createdAt, &expiresAt, &lastUsed, &apikey.IsActive,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if createdAt.Valid {
+			apikey.CreatedAt = createdAt.Time
 		}
 		if expiresAt.Valid {
 			apikey.ExpiresAt = &expiresAt.Time
@@ -180,7 +187,7 @@ func (r *APIKeyRepository) ValidateKey(key string) (*model.APIKey, error) {
 	if !apikey.IsActive {
 		return nil, fmt.Errorf("API key is inactive")
 	}
-	if !apikey.ExpiresAt.IsZero() && apikey.ExpiresAt.Before(time.Now()) {
+	if apikey.ExpiresAt != nil && !apikey.ExpiresAt.IsZero() && apikey.ExpiresAt.Before(time.Now()) {
 		return nil, fmt.Errorf("API key has expired")
 	}
 	// Update last used timestamp
