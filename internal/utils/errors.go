@@ -5,58 +5,66 @@ import (
 	"fmt"
 )
 
-// 定义自定义错误类型
-var (
-	ErrURLNotFound         = errors.New("URL not found")
-	ErrURLExpired          = errors.New("URL has expired")
-	ErrCustomCodeExists    = errors.New("custom short code already exists")
-	ErrInvalidCustomCode   = errors.New("invalid custom short code format")
-	ErrGenerateShortCode   = errors.New("failed to generate unique short code after maximum retries")
-	ErrInvalidIPFormat     = errors.New("invalid IP address format")
-	ErrInvalidTimeFormat   = errors.New("invalid time format")
-)
-
-// ValidationError 表示验证错误
-type ValidationError struct {
-	Field   string
-	Message string
-	Value   interface{}
+// AppError 应用错误结构
+type AppError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Err     error  `json:"-"`
 }
 
 // Error 实现 error 接口
-func (e ValidationError) Error() string {
-	return fmt.Sprintf("validation error in field '%s': %s (value: %v)", e.Field, e.Message, e.Value)
+func (e *AppError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Err)
+	}
+	return e.Message
 }
 
-// NewValidationError 创建一个新的验证错误
-func NewValidationError(field, message string, value interface{}) ValidationError {
-	return ValidationError{
-		Field:   field,
+// Unwrap 实现错误包装接口
+func (e *AppError) Unwrap() error {
+	return e.Err
+}
+
+// NewAppError 创建新的应用错误
+func NewAppError(code, message string) *AppError {
+	return &AppError{
+		Code:    code,
 		Message: message,
-		Value:   value,
 	}
 }
 
-// ValidateAndFormatError 验证并格式化错误信息
-func ValidateAndFormatError(err error) string {
-	if err == nil {
-		return ""
-	}
-	
-	// 检查是否是预定义错误
-	switch {
-	case errors.Is(err, ErrURLNotFound):
-		return ErrURLNotFound.Error()
-	case errors.Is(err, ErrURLExpired):
-		return ErrURLExpired.Error()
-	case errors.Is(err, ErrCustomCodeExists):
-		return ErrCustomCodeExists.Error()
-	case errors.Is(err, ErrInvalidCustomCode):
-		return ErrInvalidCustomCode.Error()
-	case errors.Is(err, ErrGenerateShortCode):
-		return ErrGenerateShortCode.Error()
-	default:
-		// 对于其他错误，返回原始错误信息
-		return err.Error()
+// WrapError 包装错误
+func WrapError(err error, code, message string) *AppError {
+	return &AppError{
+		Code:    code,
+		Message: message,
+		Err:     err,
 	}
 }
+
+// IsAppError 检查是否为应用错误
+func IsAppError(err error, code string) bool {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr.Code == code
+	}
+	return false
+}
+
+// 预定义错误
+var (
+	ErrNotFound          = NewAppError("NOT_FOUND", "resource not found")
+	ErrInvalidInput      = NewAppError("INVALID_INPUT", "invalid input provided")
+	ErrUnauthorized      = NewAppError("UNAUTHORIZED", "unauthorized access")
+	ErrForbidden         = NewAppError("FORBIDDEN", "forbidden access")
+	ErrInternal          = NewAppError("INTERNAL_ERROR", "internal server error")
+	ErrRateLimitExceeded = NewAppError("RATE_LIMIT_EXCEEDED", "rate limit exceeded")
+	ErrDatabaseError     = NewAppError("DATABASE_ERROR", "database error occurred")
+	ErrAlreadyExists     = NewAppError("ALREADY_EXISTS", "resource already exists")
+	ErrExpired           = NewAppError("EXPIRED", "resource has expired")
+	ErrURLNotFound       = NewAppError("URL_NOT_FOUND", "short URL not found")
+	ErrURLExpired        = NewAppError("URL_EXPIRED", "short URL has expired")
+	ErrInvalidCustomCode = NewAppError("INVALID_CUSTOM_CODE", "invalid custom code format")
+	ErrCustomCodeExists  = NewAppError("CUSTOM_CODE_EXISTS", "custom code already exists")
+	ErrGenerateShortCode = NewAppError("GENERATE_SHORT_CODE_FAILED", "failed to generate unique short code after multiple attempts")
+)

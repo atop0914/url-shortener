@@ -17,7 +17,8 @@ type AnalyticsRepository struct {
 }
 
 func NewAnalyticsRepository(db *sql.DB) *AnalyticsRepository {
-	dbType := database.ParseDBType("")
+	// 如果无法确定数据库类型，则默认使用SQLite
+	dbType := database.DBTypeSQLite
 	dialect := database.GetDialect(dbType)
 
 	repo := &AnalyticsRepository{

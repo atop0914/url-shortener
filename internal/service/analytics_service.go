@@ -29,7 +29,7 @@ func (s *AnalyticsService) RecordVisit(ctx context.Context, shortCode, ipAddress
 	realIP := s.getRealIP(ctx, ipAddress)
 
 	// 解析用户代理信息
-	userOS, browser, deviceType := utils.ParseUserAgent(userAgent)
+	userAgentInfo := utils.ParseUserAgent(userAgent)
 
 	// TODO: 实现IP地理位置解析
 	// 这里只是一个模拟实现，实际部署时可以集成真实的IP地理位置服务
@@ -43,9 +43,9 @@ func (s *AnalyticsService) RecordVisit(ctx context.Context, shortCode, ipAddress
 		Referer:    referer,
 		Country:    country,
 		City:       city,
-		UserOS:     userOS,
-		Browser:    browser,
-		DeviceType: deviceType,
+		UserOS:     userAgentInfo.OS,
+		Browser:    userAgentInfo.Browser,
+		DeviceType: userAgentInfo.DeviceType,
 		VisitedAt:  time.Now(),
 	}
 

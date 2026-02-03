@@ -95,7 +95,7 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, utils.ErrURLNotFound
+			return nil, fmt.Errorf("URL not found: %w", utils.ErrNotFound)
 		}
 		return nil, fmt.Errorf("failed to get URL by short code: %w", err)
 	}
@@ -155,7 +155,7 @@ func (r *URLRepository) IncrementClicks(shortCode string) error {
 	}
 
 	if rowsAffected == 0 {
-		return utils.ErrURLNotFound
+		return fmt.Errorf("URL not found: %w", utils.ErrNotFound)
 	}
 
 	return nil
@@ -206,7 +206,7 @@ func (r *URLRepository) DeleteByShortCode(shortCode string) error {
 	}
 
 	if rowsAffected == 0 {
-		return utils.ErrURLNotFound
+		return fmt.Errorf("URL not found: %w", utils.ErrNotFound)
 	}
 
 	return nil
