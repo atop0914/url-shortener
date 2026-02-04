@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+	"url-shortener/internal/cache"
 	"url-shortener/internal/database"
 	"url-shortener/internal/model"
 	"url-shortener/internal/utils"
@@ -12,8 +13,10 @@ import (
 )
 
 type URLRepository struct {
-	db      *sql.DB
-	dialect database.Dialect
+	db           *sql.DB
+	dialect      database.Dialect
+	urlCache     *cache.URLCache
+	cacheEnabled bool
 }
 
 func NewURLRepository(db *sql.DB) *URLRepository {
@@ -22,8 +25,10 @@ func NewURLRepository(db *sql.DB) *URLRepository {
 	dialect := database.GetDialect(dbType)
 
 	repo := &URLRepository{
-		db:      db,
-		dialect: dialect,
+		db:           db,
+		dialect:      dialect,
+		urlCache:     cache.NewURLCache(1000, 5*time.Minute),
+		cacheEnabled: true,
 	}
 	repo.initDB()
 	return repo
@@ -79,6 +84,19 @@ func (r *URLRepository) CreateWithExpiry(originalURL, shortCode string, expiresA
 }
 
 func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
+	// 先检查缓存
+	if r.cacheEnabled {
+		if cached, found := r.urlCache.Get(shortCode); found {
+			// 从缓存数据构建 URL 对象
+			url := &model.URL{
+				ShortCode:   cached.ShortCode,
+				OriginalURL: cached.OriginalURL,
+			}
+			return url, nil
+		}
+	}
+
+	// 缓存未命中，从数据库查询
 	var url model.URL
 	var expiresAt interface{}
 
@@ -102,6 +120,11 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 
 	// 处理过期时间
 	url.ExpiresAt = r.parseExpiryTime(expiresAt)
+
+	// 存入缓存（未过期或永不过期的URL）
+	if r.cacheEnabled && (url.ExpiresAt == nil || time.Now().Before(*url.ExpiresAt)) {
+		r.urlCache.Set(shortCode, url.OriginalURL, url.ExpiresAt)
+	}
 
 	return &url, nil
 }
@@ -193,6 +216,11 @@ func (r *URLRepository) GetAll() ([]*model.URL, error) {
 }
 
 func (r *URLRepository) DeleteByShortCode(shortCode string) error {
+	// 先使缓存失效
+	if r.cacheEnabled {
+		r.urlCache.Invalidate(shortCode)
+	}
+
 	p1 := r.dialect.GetPlaceholder(0)
 	query := fmt.Sprintf(`UPDATE urls SET is_active = 0 WHERE short_code = %s`, p1)
 	result, err := r.db.Exec(query, shortCode)
