@@ -139,6 +139,20 @@ func (s *EnhancedShortenerService) GetAllURLs() ([]*model.URL, error) {
 	return s.repo.GetAll()
 }
 
+// GetURLsWithPagination 分页获取URL列表
+func (s *EnhancedShortenerService) GetURLsWithPagination(page, pageSize int, keyword string) (*repository.PaginatedResult, error) {
+	return s.repo.GetWithPagination(&repository.PaginatedQuery{
+		Page:     page,
+		PageSize: pageSize,
+		Keyword:  keyword,
+	})
+}
+
+// SearchURLs 搜索URL
+func (s *EnhancedShortenerService) SearchURLs(keyword string, page, pageSize int) (*repository.PaginatedResult, error) {
+	return s.repo.SearchURLs(keyword, page, pageSize)
+}
+
 // DeleteShortCode 删除指定的短链接
 func (s *EnhancedShortenerService) DeleteShortCode(shortCode string) error {
 	return s.repo.DeleteByShortCode(shortCode)

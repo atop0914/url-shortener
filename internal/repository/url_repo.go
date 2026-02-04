@@ -215,6 +215,117 @@ func (r *URLRepository) GetAll() ([]*model.URL, error) {
 	return urls, nil
 }
 
+// PaginatedQuery 分页查询参数
+type PaginatedQuery struct {
+	Page     int    // 页码 (从1开始)
+	PageSize int    // 每页数量
+	Keyword  string // 搜索关键词 (模糊匹配 original_url 和 short_code)
+}
+
+// PaginatedResult 分页查询结果
+type PaginatedResult struct {
+	Items      []*model.URL `json:"items"`
+	Total      int          `json:"total"`
+	Page       int          `json:"page"`
+	PageSize   int          `json:"page_size"`
+	TotalPages int          `json:"total_pages"`
+	HasNext    bool         `json:"has_next"`
+	HasPrev    bool         `json:"has_prev"`
+}
+
+// GetWithPagination 分页获取URL列表
+func (r *URLRepository) GetWithPagination(query *PaginatedQuery) (*PaginatedResult, error) {
+	// 设置默认值
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = 10
+	}
+	if query.PageSize > 100 {
+		query.PageSize = 100
+	}
+
+	offset := (query.Page - 1) * query.PageSize
+
+	// 获取总数
+	var total int
+	countQuery := `SELECT COUNT(*) FROM urls WHERE is_active = 1`
+	if query.Keyword != "" {
+		p1 := r.dialect.GetPlaceholder(0)
+		p2 := r.dialect.GetPlaceholder(1)
+		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM urls WHERE is_active = 1 AND (original_url LIKE %s OR short_code LIKE %s)`, p1, p2)
+	}
+	err := r.db.QueryRow(countQuery, "%"+query.Keyword+"%", "%"+query.Keyword+"%").Scan(&total)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count URLs: %w", err)
+	}
+
+	// 获取分页数据
+	var rows *sql.Rows
+	baseQuery := `SELECT id, original_url, short_code, created_at, expires_at, clicks, is_active FROM urls WHERE is_active = 1`
+	if query.Keyword != "" {
+		p1 := r.dialect.GetPlaceholder(0)
+		p2 := r.dialect.GetPlaceholder(1)
+		p3 := r.dialect.GetPlaceholder(2)
+		p4 := r.dialect.GetPlaceholder(3)
+		sql := fmt.Sprintf(`%s AND (original_url LIKE %s OR short_code LIKE %s) ORDER BY created_at DESC LIMIT %s OFFSET %s`, baseQuery, p1, p2, p3, p4)
+		rows, err = r.db.Query(sql, "%"+query.Keyword+"%", "%"+query.Keyword+"%", query.PageSize, offset)
+	} else {
+		p1 := r.dialect.GetPlaceholder(0)
+		p2 := r.dialect.GetPlaceholder(1)
+		sql := fmt.Sprintf(`%s ORDER BY created_at DESC LIMIT %s OFFSET %s`, baseQuery, p1, p2)
+		rows, err = r.db.Query(sql, query.PageSize, offset)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query URLs: %w", err)
+	}
+	defer rows.Close()
+
+	var urls []*model.URL
+	for rows.Next() {
+		var url model.URL
+		var expiresAt interface{}
+		err := rows.Scan(
+			&url.ID,
+			&url.OriginalURL,
+			&url.ShortCode,
+			&url.CreatedAt,
+			&expiresAt,
+			&url.Clicks,
+			&url.IsActive,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan URL row: %w", err)
+		}
+
+		url.ExpiresAt = r.parseExpiryTime(expiresAt)
+		urls = append(urls, &url)
+	}
+
+	// 计算分页信息
+	totalPages := (total + query.PageSize - 1) / query.PageSize
+
+	return &PaginatedResult{
+		Items:      urls,
+		Total:      total,
+		Page:       query.Page,
+		PageSize:   query.PageSize,
+		TotalPages: totalPages,
+		HasNext:    query.Page < totalPages,
+		HasPrev:    query.Page > 1,
+	}, nil
+}
+
+// SearchURLs 搜索URL (快捷方法)
+func (r *URLRepository) SearchURLs(keyword string, page, pageSize int) (*PaginatedResult, error) {
+	return r.GetWithPagination(&PaginatedQuery{
+		Page:     page,
+		PageSize: pageSize,
+		Keyword:  keyword,
+	})
+}
+
 func (r *URLRepository) DeleteByShortCode(shortCode string) error {
 	// 先使缓存失效
 	if r.cacheEnabled {

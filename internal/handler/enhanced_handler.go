@@ -148,6 +148,44 @@ func (h *EnhancedHandler) ListURLs(c *gin.Context) {
 	c.JSON(http.StatusOK, urls)
 }
 
+// GetURLsWithPagination 分页获取URL列表
+// GET /api/urls?page=1&page_size=10&keyword=example
+func (h *EnhancedHandler) GetURLsWithPagination(c *gin.Context) {
+	// 解析分页参数
+	page := h.parsePageParam(c.DefaultQuery("page", "1"))
+	pageSize := h.parsePageParam(c.DefaultQuery("page_size", "10"))
+	keyword := c.Query("keyword")
+
+	result, err := h.service.GetURLsWithPagination(page, pageSize, keyword)
+	if err != nil {
+		h.handleServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// SearchURLs 搜索URL
+// GET /api/urls/search?keyword=example&page=1&page_size=10
+func (h *EnhancedHandler) SearchURLs(c *gin.Context) {
+	keyword := c.Query("keyword")
+	if keyword == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "Keyword is required"})
+		return
+	}
+
+	page := h.parsePageParam(c.DefaultQuery("page", "1"))
+	pageSize := h.parsePageParam(c.DefaultQuery("page_size", "10"))
+
+	result, err := h.service.SearchURLs(keyword, page, pageSize)
+	if err != nil {
+		h.handleServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // DeleteURL 删除指定的短链接
 func (h *EnhancedHandler) DeleteURL(c *gin.Context) {
 	shortCode := c.Param("code")
@@ -217,6 +255,16 @@ func (h *EnhancedHandler) parseLimitParam(limitStr string) int {
 		return 1000
 	}
 	return limit
+}
+
+// 辅助方法：解析page参数
+func (h *EnhancedHandler) parsePageParam(pageStr string) int {
+	var page int
+	_, err := fmt.Sscanf(pageStr, "%d", &page)
+	if err != nil || page <= 0 {
+		return 1 // 默认值
+	}
+	return page
 }
 
 // 辅助方法：处理通用服务错误

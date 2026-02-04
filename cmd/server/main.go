@@ -108,7 +108,9 @@ func initApp() (*http.Server, error) {
 		apiProtected.DELETE("/urls/:code", enhancedHandler.DeleteURL)
 
 		// 管理员功能
-		apiProtected.GET("/urls", enhancedHandler.ListURLs)
+		apiProtected.GET("/urls", enhancedHandler.ListURLs)                         // 获取所有URL
+		apiProtected.GET("/urls/pagination", enhancedHandler.GetURLsWithPagination) // 分页获取URL
+		apiProtected.GET("/urls/search", enhancedHandler.SearchURLs)               // 搜索URL
 		apiProtected.POST("/cleanup", enhancedHandler.CleanupExpiredURLs)
 
 		// API Key 管理
