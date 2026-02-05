@@ -44,7 +44,7 @@ func (m *APIKeyAuthMiddleware) RequireAPIKey() gin.HandlerFunc {
 		// Validate the key
 		apikey, err := m.service.ValidateKey(apiKey)
 		if err != nil {
-			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid API key: "+err.Error())
+			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid API key")
 			c.Abort()
 			return
 		}

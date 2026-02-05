@@ -136,10 +136,14 @@ func (s *ShortenerService) generateUniqueShortCode() (string, error) {
 	defer s.mutex.Unlock()
 
 	for i := 0; i < MaxRetries; i++ {
-		shortCode := s.generateRandomString(DefaultShortCodeLength)
+		shortCode, err := s.generateRandomString(DefaultShortCodeLength)
+		if err != nil {
+			// 如果随机数生成失败，记录错误并继续尝试
+			continue
+		}
 
 		// 检查短码是否已存在
-		_, err := s.repo.GetByShortCode(shortCode)
+		_, err = s.repo.GetByShortCode(shortCode)
 		if err != nil {
 			if err == utils.ErrURLNotFound {
 				// 如果是 ErrURLNotFound 错误，说明短码不存在，可以使用
@@ -154,19 +158,17 @@ func (s *ShortenerService) generateUniqueShortCode() (string, error) {
 	return "", utils.ErrGenerateShortCode
 }
 
-func (s *ShortenerService) generateRandomString(length int) string {
+func (s *ShortenerService) generateRandomString(length int) (string, error) {
 	result := make([]byte, length)
 	for i := 0; i < length; i++ {
 		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(Base62Chars))))
 		if err != nil {
-			// 如果随机数生成失败，回退到伪随机
-			// 这里使用 math/rand 是为了确保始终有返回值
-			result[i] = Base62Chars[i%len(Base62Chars)]
-		} else {
-			result[i] = Base62Chars[num.Int64()]
+			// 随机数生成失败，返回错误而不是使用可预测的回退
+			return "", fmt.Errorf("failed to generate random bytes: %w", err)
 		}
+		result[i] = Base62Chars[num.Int64()]
 	}
-	return string(result)
+	return string(result), nil
 }
 
 func (s *ShortenerService) GetAllURLs() ([]*model.URL, error) {
