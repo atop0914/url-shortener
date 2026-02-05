@@ -17,6 +17,8 @@ const (
 	Base62Chars             = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	DefaultShortCodeLength  = 6
 	MaxRetries              = 10
+	MaxCustomCodeLength     = 50  // 限制自定义短码长度
+	MinCustomCodeLength     = 3   // 最小自定义短码长度
 )
 
 // EnhancedShortenerService 提供短链接服务的主要业务逻辑
@@ -26,6 +28,12 @@ type EnhancedShortenerService struct {
 	analyticsSvc   *AnalyticsService
 	baseURL        string
 	mutex          sync.Mutex // 用于保护生成唯一短码的过程
+	clickQueue     chan clickTask // 异步点击任务队列
+}
+
+// clickTask 表示一个点击计数任务
+type clickTask struct {
+	shortCode string
 }
 
 // NewEnhancedShortenerService 创建一个新的 EnhancedShortenerService 实例
@@ -36,12 +44,28 @@ func NewEnhancedShortenerService(
 	
 	analyticsSvc := NewAnalyticsService(repo, analyticsRepo)
 	
-	return &EnhancedShortenerService{
+	service := &EnhancedShortenerService{
 		repo:          repo,
 		analyticsRepo: analyticsRepo,
 		analyticsSvc:  analyticsSvc,
 		baseURL:       baseURL,
+		clickQueue:    make(chan clickTask, 1000), // 缓冲队列，避免阻塞
 	}
+	
+	// 启动后台点击计数处理器
+	service.startClickProcessor()
+	
+	return service
+}
+
+// startClickProcessor 启动后台点击计数处理器
+func (s *EnhancedShortenerService) startClickProcessor() {
+	go func() {
+		for task := range s.clickQueue {
+			// 尝试增加点击次数，失败时不重试以避免队列积压
+			_ = s.repo.IncrementClicks(task.shortCode)
+		}
+	}()
 }
 
 // CreateShortURL 创建一个新的短链接
@@ -88,7 +112,7 @@ func (s *EnhancedShortenerService) GetByShortCode(shortCode string) (*model.URL,
 	}
 
 	// 异步增加点击次数以提高性能
-	s.incrementClicksAsync(shortCode)
+	s.enqueueClickIncrement(shortCode)
 
 	return url, nil
 }
@@ -109,7 +133,7 @@ func (s *EnhancedShortenerService) GetByShortCodeWithContext(ctx context.Context
 	s.recordVisitAsync(ctx, shortCode, ipAddress, userAgent, referer)
 
 	// 异步增加点击次数以提高性能
-	s.incrementClicksAsync(shortCode)
+	s.enqueueClickIncrement(shortCode)
 
 	return url, nil
 }
@@ -167,6 +191,11 @@ func (s *EnhancedShortenerService) CleanupExpiredURLs() error {
 
 // validateCustomCode 验证自定义短码
 func (s *EnhancedShortenerService) validateCustomCode(customCode string) error {
+	// 验证自定义短码长度
+	if len(customCode) < MinCustomCodeLength || len(customCode) > MaxCustomCodeLength {
+		return fmt.Errorf("custom code length must be between %d and %d characters", MinCustomCodeLength, MaxCustomCodeLength)
+	}
+
 	// 验证自定义短码格式
 	if !utils.IsValidCustomCode(customCode) {
 		return utils.ErrInvalidCustomCode
@@ -189,6 +218,12 @@ func (s *EnhancedShortenerService) validateCustomCode(customCode string) error {
 func (s *EnhancedShortenerService) calculateExpirationTime(expireInHours int) *time.Time {
 	if expireInHours <= 0 {
 		return nil // 不设置过期时间
+	}
+
+	// 设置最大过期时间限制（例如5年）
+	maxExpireHours := 5 * 365 * 24
+	if expireInHours > maxExpireHours {
+		expireInHours = maxExpireHours
 	}
 
 	expireTime := time.Now().Add(time.Duration(expireInHours) * time.Hour)
@@ -219,16 +254,21 @@ func (s *EnhancedShortenerService) isURLExpired(url *model.URL) bool {
 	return time.Now().After(*url.ExpiresAt)
 }
 
-// incrementClicksAsync 异步增加点击次数
-func (s *EnhancedShortenerService) incrementClicksAsync(shortCode string) {
-	go func() {
-		_ = s.repo.IncrementClicks(shortCode)
-	}()
+// enqueueClickIncrement 将点击增量任务加入队列
+func (s *EnhancedShortenerService) enqueueClickIncrement(shortCode string) {
+	select {
+	case s.clickQueue <- clickTask{shortCode: shortCode}:
+		// 任务已加入队列
+	default:
+		// 队列满了，丢弃任务避免阻塞
+		// 在高负载情况下这是一种合理的降级策略
+	}
 }
 
 // recordVisitAsync 异步记录访问分析数据
 func (s *EnhancedShortenerService) recordVisitAsync(ctx context.Context, shortCode, ipAddress, userAgent, referer string) {
 	go func() {
+		// 使用带上下文的调用，允许取消
 		_ = s.analyticsSvc.RecordVisit(ctx, shortCode, ipAddress, userAgent, referer)
 	}()
 }
@@ -297,4 +337,9 @@ func (s *EnhancedShortenerService) generateRandomString(length int) (string, err
 		result[i] = Base62Chars[num.Int64()]
 	}
 	return string(result), nil
+}
+
+// Close 优雅关闭服务，清理资源
+func (s *EnhancedShortenerService) Close() {
+	close(s.clickQueue)
 }

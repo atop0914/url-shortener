@@ -26,19 +26,19 @@ import (
 )
 
 // initApp 初始化应用程序组件
-func initApp() (*http.Server, error) {
+func initApp() (*http.Server, *service.EnhancedShortenerService, error) {
 	// 加载配置
 	cfg := config.LoadConfig()
 
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("configuration validation failed: %w", err)
+		return nil, nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
 	// 初始化数据库连接
 	db, err := database.NewConnection(cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// 根据数据库类型获取方言并初始化存储库
@@ -49,7 +49,7 @@ func initApp() (*http.Server, error) {
 
 	// 初始化 API Key 表
 	if err := apiKeyRepo.InitSchema(); err != nil {
-		return nil, fmt.Errorf("failed to initialize API key schema: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize API key schema: %w", err)
 	}
 
 	// 初始化服务
@@ -122,7 +122,7 @@ func initApp() (*http.Server, error) {
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"message":  "Welcome to URL Shortener Service",
-			"version":  "1.0.0",
+			"version":  "1.1.0",
 			"docs":     "/docs (if available)",
 			"database": string(dbType),
 		})
@@ -130,50 +130,59 @@ func initApp() (*http.Server, error) {
 
 	// 创建HTTP服务器
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: router,
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
+		Handler:      router,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
 	}
 
-	return server, nil
+	return server, shortenerService, nil
 }
 
 // gracefulShutdown 等待中断信号并优雅关闭服务器
-func gracefulShutdown(server *http.Server) {
+func gracefulShutdown(server *http.Server, service *service.EnhancedShortenerService) {
 	// 创建中断信号通道
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
 
-	// 创建5秒超时上下文
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 创建超时上下文
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 优雅关闭
+	// 优雅关闭HTTP服务器
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server exited gracefully")
 	}
 
-	log.Println("Server exited")
+	// 关闭服务资源
+	if service != nil {
+		service.Close()
+	}
 }
 
 func main() {
 	// 初始化应用
-	server, err := initApp()
+	server, service, err := initApp()
 	if err != nil {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
 
 	// 在goroutine中启动服务器
 	go func() {
-		log.Printf("Starting server on port %d", getPortFromAddr(server.Addr))
+		log.Printf("Starting server on port %d with timeout settings - Read: %v, Write: %v, Idle: %v", 
+			getPortFromAddr(server.Addr), server.ReadTimeout, server.WriteTimeout, server.IdleTimeout)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
 	// 等待中断信号并优雅关闭
-	gracefulShutdown(server)
+	gracefulShutdown(server, service)
 }
 
 // getPortFromAddr 从地址字符串中提取端口号

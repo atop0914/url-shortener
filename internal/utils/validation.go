@@ -85,6 +85,13 @@ func IsValidCustomCode(code string) bool {
 	return err == nil && matched
 }
 
+// IsValidShortCode 检查短码格式
+func IsValidShortCode(code string) bool {
+	// 短码只能包含字母、数字，长度至少2个字符
+	matched, err := regexp.MatchString(`^[a-zA-Z0-9]{2,}$`, code)
+	return err == nil && matched
+}
+
 // SanitizeCustomCode 清理自定义短码
 func SanitizeCustomCode(code string) string {
 	// 移除不安全的字符

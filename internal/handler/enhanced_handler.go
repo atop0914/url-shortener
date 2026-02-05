@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -37,6 +38,14 @@ func (h *EnhancedHandler) CreateShortURL(c *gin.Context) {
 		return
 	}
 
+	// 验证URL格式
+	if !utils.IsValidURL(req.URL) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid URL format",
+		})
+		return
+	}
+
 	// 调用服务层创建短链接
 	resp, err := h.service.CreateShortURL(req.URL, req.CustomCode, req.ExpireIn)
 	if err != nil {
@@ -50,6 +59,14 @@ func (h *EnhancedHandler) CreateShortURL(c *gin.Context) {
 // Redirect 处理短链接重定向请求
 func (h *EnhancedHandler) Redirect(c *gin.Context) {
 	shortCode := c.Param("code")
+
+	// 验证短码格式
+	if !utils.IsValidShortCode(shortCode) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid short code format",
+		})
+		return
+	}
 
 	// 获取客户端IP地址
 	clientIP := h.getClientIP(c.Request)
@@ -73,6 +90,14 @@ func (h *EnhancedHandler) Redirect(c *gin.Context) {
 func (h *EnhancedHandler) GetStats(c *gin.Context) {
 	shortCode := c.Param("code")
 
+	// 验证短码格式
+	if !utils.IsValidShortCode(shortCode) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid short code format",
+		})
+		return
+	}
+
 	stats, err := h.service.GetStats(shortCode)
 	if err != nil {
 		h.handleURLError(c, err)
@@ -88,6 +113,14 @@ func (h *EnhancedHandler) GetAdvancedAnalytics(c *gin.Context) {
 	if err := c.ShouldBindUri(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{
 			Error: utils.ValidateAndFormatError(err),
+		})
+		return
+	}
+
+	// 验证短码格式
+	if !utils.IsValidShortCode(req.ShortCode) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid short code format",
 		})
 		return
 	}
@@ -114,6 +147,14 @@ func (h *EnhancedHandler) GetRecentVisits(c *gin.Context) {
 	if err := c.ShouldBindUri(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{
 			Error: utils.ValidateAndFormatError(err),
+		})
+		return
+	}
+
+	// 验证短码格式
+	if !utils.IsValidShortCode(req.ShortCode) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid short code format",
 		})
 		return
 	}
@@ -154,6 +195,9 @@ func (h *EnhancedHandler) GetURLsWithPagination(c *gin.Context) {
 	// 解析分页参数
 	page := h.parsePageParam(c.DefaultQuery("page", "1"))
 	pageSize := h.parsePageParam(c.DefaultQuery("page_size", "10"))
+	if pageSize > 100 { // 限制最大页面大小
+		pageSize = 100
+	}
 	keyword := c.Query("keyword")
 
 	result, err := h.service.GetURLsWithPagination(page, pageSize, keyword)
@@ -176,6 +220,9 @@ func (h *EnhancedHandler) SearchURLs(c *gin.Context) {
 
 	page := h.parsePageParam(c.DefaultQuery("page", "1"))
 	pageSize := h.parsePageParam(c.DefaultQuery("page_size", "10"))
+	if pageSize > 100 { // 限制最大页面大小
+		pageSize = 100
+	}
 
 	result, err := h.service.SearchURLs(keyword, page, pageSize)
 	if err != nil {
@@ -189,6 +236,14 @@ func (h *EnhancedHandler) SearchURLs(c *gin.Context) {
 // DeleteURL 删除指定的短链接
 func (h *EnhancedHandler) DeleteURL(c *gin.Context) {
 	shortCode := c.Param("code")
+
+	// 验证短码格式
+	if !utils.IsValidShortCode(shortCode) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error: "Invalid short code format",
+		})
+		return
+	}
 
 	err := h.service.DeleteShortCode(shortCode)
 	if err != nil {
@@ -205,6 +260,7 @@ func (h *EnhancedHandler) HealthCheck(c *gin.Context) {
 		"status":  "healthy",
 		"message": "URL shortener service is running",
 		"timestamp": time.Now().Unix(),
+		"version": "1.1.0", // 添加版本信息
 	})
 }
 
@@ -228,7 +284,7 @@ func (h *EnhancedHandler) parseTimeRangeParams(c *gin.Context) (*time.Time, *tim
 	if c.Query("since") != "" {
 		parsedSince, err := time.Parse("2006-01-02", c.Query("since"))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("invalid since date format, expected YYYY-MM-DD: %w", err)
 		}
 		since = &parsedSince
 	}
@@ -236,9 +292,14 @@ func (h *EnhancedHandler) parseTimeRangeParams(c *gin.Context) (*time.Time, *tim
 	if c.Query("until") != "" {
 		parsedUntil, err := time.Parse("2006-01-02", c.Query("until"))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("invalid until date format, expected YYYY-MM-DD: %w", err)
 		}
 		until = &parsedUntil
+	}
+
+	// 验证时间范围逻辑
+	if since != nil && until != nil && since.After(*until) {
+		return nil, nil, fmt.Errorf("since date cannot be after until date")
 	}
 
 	return since, until, nil
@@ -264,6 +325,9 @@ func (h *EnhancedHandler) parsePageParam(pageStr string) int {
 	if err != nil || page <= 0 {
 		return 1 // 默认值
 	}
+	if page > 10000 { // 防止过大的页码
+		return 10000
+	}
 	return page
 }
 
@@ -271,10 +335,14 @@ func (h *EnhancedHandler) parsePageParam(pageStr string) int {
 func (h *EnhancedHandler) handleServiceError(c *gin.Context, err error) {
 	// 根据错误类型返回相应HTTP状态码
 	switch {
-	case err == utils.ErrCustomCodeExists || err == utils.ErrInvalidCustomCode:
+	case errors.Is(err, utils.ErrCustomCodeExists):
+		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, utils.ErrInvalidCustomCode):
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 	case strings.Contains(err.Error(), "database"):
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "Database error occurred"})
+	case strings.Contains(err.Error(), "generate"):
+		c.JSON(http.StatusTooManyRequests, model.ErrorResponse{Error: "Rate limit exceeded, please try again later"})
 	default:
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 	}
@@ -283,9 +351,9 @@ func (h *EnhancedHandler) handleServiceError(c *gin.Context, err error) {
 // 辅助方法：处理URL相关错误
 func (h *EnhancedHandler) handleURLError(c *gin.Context, err error) {
 	switch {
-	case err == utils.ErrURLNotFound:
+	case errors.Is(err, utils.ErrURLNotFound):
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "URL not found"})
-	case err == utils.ErrURLExpired:
+	case errors.Is(err, utils.ErrURLExpired):
 		c.JSON(http.StatusGone, model.ErrorResponse{Error: "Link has expired"})
 	case strings.Contains(err.Error(), "database"):
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "Database error occurred"})
@@ -296,10 +364,9 @@ func (h *EnhancedHandler) handleURLError(c *gin.Context, err error) {
 
 // getClientIP 获取客户端真实IP地址
 func (h *EnhancedHandler) getClientIP(r *http.Request) string {
-	// 检查 X-Forwarded-For 头部
+	// 检查 X-Forwarded-For 头部（可能包含多个IP，取第一个）
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
-		// X-Forwarded-For 可能包含多个IP地址，取第一个
 		ip := strings.Split(forwarded, ",")[0]
 		return strings.TrimSpace(ip)
 	}
@@ -314,6 +381,7 @@ func (h *EnhancedHandler) getClientIP(r *http.Request) string {
 	addr := r.RemoteAddr
 	ip, _, err := net.SplitHostPort(addr)
 	if err != nil {
+		// 如果无法分离主机和端口，返回原始地址
 		return addr
 	}
 	return ip
