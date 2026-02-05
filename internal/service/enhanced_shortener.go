@@ -286,7 +286,7 @@ func (s *EnhancedShortenerService) generateUniqueShortCode() (string, error) {
 }
 
 // generateRandomString 生成随机字符串
-func (s *EnhancedShortenerService) generateRandomString(length int) string {
+func (s *EnhancedShortenerService) generateRandomString(length int) (string, error) {
 	result := make([]byte, length)
 	for i := 0; i < length; i++ {
 		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(Base62Chars))))
