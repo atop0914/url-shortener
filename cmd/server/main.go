@@ -63,6 +63,15 @@ func initApp() (*http.Server, error) {
 	// 初始化中间件
 	apiKeyMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService)
 
+	// 初始化限流器
+	var rateLimiter middleware.RateLimiter
+	if cfg.RateLimitConfig.Enabled {
+		rateLimiter = middleware.NewMemoryRateLimiter(cfg.RateLimitConfig)
+		log.Printf("Rate limiting enabled: %d requests per minute", cfg.RateLimitConfig.RequestsPerMinute)
+	} else {
+		log.Println("Rate limiting disabled")
+	}
+
 	// 设置Gin模式
 	if cfg.Debug {
 		gin.SetMode(gin.DebugMode)
@@ -79,6 +88,11 @@ func initApp() (*http.Server, error) {
 
 	// CORS 中间件
 	router.Use(cors.Default())
+
+	// Rate Limiting 中间件（应用到所有 API 路由）
+	if rateLimiter != nil && cfg.RateLimitConfig.Enabled {
+		router.Use(middleware.RateLimitMiddleware(rateLimiter, cfg.RateLimitConfig.ExcludePaths))
+	}
 
 	// 健康检查路由
 	router.GET("/health", enhancedHandler.HealthCheck)
