@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -283,9 +284,9 @@ func (h *EnhancedHandler) handleServiceError(c *gin.Context, err error) {
 // 辅助方法：处理URL相关错误
 func (h *EnhancedHandler) handleURLError(c *gin.Context, err error) {
 	switch {
-	case err == utils.ErrURLNotFound:
+	case errors.Is(err, utils.ErrURLNotFound):
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "URL not found"})
-	case err == utils.ErrURLExpired:
+	case errors.Is(err, utils.ErrURLExpired):
 		c.JSON(http.StatusGone, model.ErrorResponse{Error: "Link has expired"})
 	case strings.Contains(err.Error(), "database"):
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "Database error occurred"})

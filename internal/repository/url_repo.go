@@ -75,8 +75,8 @@ func (r *URLRepository) initDB() error {
 func (r *URLRepository) CreateWithExpiry(originalURL, shortCode string, expiresAt *time.Time) error {
 	placeholder := r.dialect.GetPlaceholder(0)
 
-	query := fmt.Sprintf(`INSERT INTO urls (original_url, short_code, expires_at, is_active) VALUES (%s, %s, %s, 1)`, placeholder, placeholder, placeholder)
-	_, err := r.db.Exec(query, originalURL, shortCode, expiresAt)
+	query := fmt.Sprintf(`INSERT INTO urls (original_url, short_code, created_at, expires_at, is_active) VALUES (%s, %s, %s, %s, 1)`, placeholder, placeholder, placeholder, placeholder)
+	_, err := r.db.Exec(query, originalURL, shortCode, time.Now(), expiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to create URL record: %w", err)
 	}
@@ -98,7 +98,7 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 
 	// 缓存未命中，从数据库查询
 	var url model.URL
-	var expiresAt interface{}
+	var createdAtStr, expiresAtStr sql.NullString
 
 	p1 := r.dialect.GetPlaceholder(0)
 	query := fmt.Sprintf(`SELECT id, original_url, short_code, created_at, expires_at, clicks, is_active FROM urls WHERE short_code = %s AND is_active = 1`, p1)
@@ -106,20 +106,31 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 		&url.ID,
 		&url.OriginalURL,
 		&url.ShortCode,
-		&url.CreatedAt,
-		&expiresAt,
+		&createdAtStr,
+		&expiresAtStr,
 		&url.Clicks,
 		&url.IsActive,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("URL not found: %w", utils.ErrNotFound)
+			return nil, fmt.Errorf("URL not found: %w", utils.ErrURLNotFound)
 		}
 		return nil, fmt.Errorf("failed to get URL by short code: %w", err)
 	}
 
-	// 处理过期时间
-	url.ExpiresAt = r.parseExpiryTime(expiresAt)
+	// 解析创建时间
+	if createdAtStr.Valid && createdAtStr.String != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
+			url.CreatedAt = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05", createdAtStr.String); err == nil {
+			url.CreatedAt = t
+		}
+	}
+	
+	// 解析过期时间
+	if expiresAtStr.Valid && expiresAtStr.String != "" {
+		url.ExpiresAt = parseTimeString(expiresAtStr.String)
+	}
 
 	// 存入缓存（未过期或永不过期的URL）
 	if r.cacheEnabled && (url.ExpiresAt == nil || time.Now().Before(*url.ExpiresAt)) {
@@ -359,6 +370,22 @@ func (r *URLRepository) DeleteExpiredURLs() error {
 	_, err := r.db.Exec(query, now)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired URLs: %w", err)
+	}
+	return nil
+}
+
+// parseTimeString 解析时间字符串
+func parseTimeString(s string) *time.Time {
+	formats := []string{
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return &t
+		}
 	}
 	return nil
 }

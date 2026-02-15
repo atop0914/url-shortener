@@ -89,11 +89,11 @@ func (r *APIKeyRepository) GetByKey(key string) (*model.APIKey, error) {
 		WHERE key = %s
 	`, p1)
 
-	var createdAt, expiresAt, lastUsed sql.NullTime
+	var createdAtStr, expiresAtStr, lastUsedStr sql.NullString
 	apikey := &model.APIKey{}
 	err := r.db.QueryRow(query, key).Scan(
 		&apikey.ID, &apikey.Key, &apikey.Name,
-		&createdAt, &expiresAt, &lastUsed, &apikey.IsActive,
+		&createdAtStr, &expiresAtStr, &lastUsedStr, &apikey.IsActive,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -101,14 +101,22 @@ func (r *APIKeyRepository) GetByKey(key string) (*model.APIKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	if createdAt.Valid {
-		apikey.CreatedAt = createdAt.Time
+	
+	// 解析时间
+	if createdAtStr.Valid {
+		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
+			apikey.CreatedAt = t
+		}
 	}
-	if expiresAt.Valid {
-		apikey.ExpiresAt = &expiresAt.Time
+	if expiresAtStr.Valid && expiresAtStr.String != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", expiresAtStr.String); err == nil {
+			apikey.ExpiresAt = &t
+		}
 	}
-	if lastUsed.Valid {
-		apikey.LastUsed = &lastUsed.Time
+	if lastUsedStr.Valid && lastUsedStr.String != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastUsedStr.String); err == nil {
+			apikey.LastUsed = &t
+		}
 	}
 	return apikey, nil
 }
@@ -129,22 +137,28 @@ func (r *APIKeyRepository) GetAll() ([]model.APIKey, error) {
 	var keys []model.APIKey
 	for rows.Next() {
 		apikey := model.APIKey{}
-		var createdAt, expiresAt, lastUsed sql.NullTime
+		var createdAtStr, expiresAtStr, lastUsedStr sql.NullString
 		err := rows.Scan(
 			&apikey.ID, &apikey.Key, &apikey.Name,
-			&createdAt, &expiresAt, &lastUsed, &apikey.IsActive,
+			&createdAtStr, &expiresAtStr, &lastUsedStr, &apikey.IsActive,
 		)
 		if err != nil {
 			return nil, err
 		}
-		if createdAt.Valid {
-			apikey.CreatedAt = createdAt.Time
+		if createdAtStr.Valid {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
+				apikey.CreatedAt = t
+			}
 		}
-		if expiresAt.Valid {
-			apikey.ExpiresAt = &expiresAt.Time
+		if expiresAtStr.Valid && expiresAtStr.String != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", expiresAtStr.String); err == nil {
+				apikey.ExpiresAt = &t
+			}
 		}
-		if lastUsed.Valid {
-			apikey.LastUsed = &lastUsed.Time
+		if lastUsedStr.Valid && lastUsedStr.String != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastUsedStr.String); err == nil {
+				apikey.LastUsed = &t
+			}
 		}
 		keys = append(keys, apikey)
 	}
