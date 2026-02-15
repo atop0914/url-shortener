@@ -18,3 +18,5 @@ Thumbs.db
 
 # Build output
 bin/
+url-shortener
+urls.db
