@@ -118,19 +118,9 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 		return nil, fmt.Errorf("failed to get URL by short code: %w", err)
 	}
 
-	// 解析创建时间
-	if createdAtStr.Valid && createdAtStr.String != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
-			url.CreatedAt = t
-		} else if t, err := time.Parse("2006-01-02 15:04:05", createdAtStr.String); err == nil {
-			url.CreatedAt = t
-		}
-	}
-	
-	// 解析过期时间
-	if expiresAtStr.Valid && expiresAtStr.String != "" {
-		url.ExpiresAt = parseTimeString(expiresAtStr.String)
-	}
+	// 使用工具函数解析时间
+	url.CreatedAt = utils.ParseTime(createdAtStr.String)
+	url.ExpiresAt = utils.ParseTimePtr(expiresAtStr.String)
 
 	// 存入缓存（未过期或永不过期的URL）
 	if r.cacheEnabled && (url.ExpiresAt == nil || time.Now().Before(*url.ExpiresAt)) {
@@ -138,41 +128,6 @@ func (r *URLRepository) GetByShortCode(shortCode string) (*model.URL, error) {
 	}
 
 	return &url, nil
-}
-
-func (r *URLRepository) parseExpiryTime(value interface{}) *time.Time {
-	if value == nil {
-		return nil
-	}
-
-	var t time.Time
-	var err error
-
-	switch v := value.(type) {
-	case time.Time:
-		t = v
-	case string:
-		// 尝试多种时间格式
-		formats := []string{
-			time.RFC3339,
-			"2006-01-02 15:04:05",
-			"2006-01-02T15:04:05Z",
-			"2006-01-02 15:04:05Z07:00",
-		}
-		for _, format := range formats {
-			if t, err = time.Parse(format, v); err == nil {
-				return &t
-			}
-		}
-		return nil
-	default:
-		return nil
-	}
-
-	if err == nil {
-		return &t
-	}
-	return nil
 }
 
 func (r *URLRepository) IncrementClicks(shortCode string) error {
@@ -220,7 +175,7 @@ func (r *URLRepository) GetAll() ([]*model.URL, error) {
 			return nil, fmt.Errorf("failed to scan URL row: %w", err)
 		}
 
-		url.ExpiresAt = r.parseExpiryTime(expiresAt)
+		url.ExpiresAt = utils.ParseTimeNullable(expiresAt)
 		urls = append(urls, &url)
 	}
 	return urls, nil
@@ -310,7 +265,7 @@ func (r *URLRepository) GetWithPagination(query *PaginatedQuery) (*PaginatedResu
 			return nil, fmt.Errorf("failed to scan URL row: %w", err)
 		}
 
-		url.ExpiresAt = r.parseExpiryTime(expiresAt)
+		url.ExpiresAt = utils.ParseTimeNullable(expiresAt)
 		urls = append(urls, &url)
 	}
 
@@ -370,22 +325,6 @@ func (r *URLRepository) DeleteExpiredURLs() error {
 	_, err := r.db.Exec(query, now)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired URLs: %w", err)
-	}
-	return nil
-}
-
-// parseTimeString 解析时间字符串
-func parseTimeString(s string) *time.Time {
-	formats := []string{
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
-	}
-	for _, format := range formats {
-		if t, err := time.Parse(format, s); err == nil {
-			return &t
-		}
 	}
 	return nil
 }

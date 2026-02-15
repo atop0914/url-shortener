@@ -7,6 +7,7 @@ import (
 
 	"url-shortener/internal/database"
 	"url-shortener/internal/model"
+	"url-shortener/internal/utils"
 )
 
 // APIKeyRepository handles API key database operations
@@ -102,22 +103,10 @@ func (r *APIKeyRepository) GetByKey(key string) (*model.APIKey, error) {
 		return nil, err
 	}
 	
-	// 解析时间
-	if createdAtStr.Valid {
-		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
-			apikey.CreatedAt = t
-		}
-	}
-	if expiresAtStr.Valid && expiresAtStr.String != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", expiresAtStr.String); err == nil {
-			apikey.ExpiresAt = &t
-		}
-	}
-	if lastUsedStr.Valid && lastUsedStr.String != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastUsedStr.String); err == nil {
-			apikey.LastUsed = &t
-		}
-	}
+	// 使用工具函数解析时间
+	apikey.CreatedAt = utils.ParseTime(createdAtStr.String)
+	apikey.ExpiresAt = utils.ParseTimePtr(expiresAtStr.String)
+	apikey.LastUsed = utils.ParseTimePtr(lastUsedStr.String)
 	return apikey, nil
 }
 
@@ -145,21 +134,10 @@ func (r *APIKeyRepository) GetAll() ([]model.APIKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		if createdAtStr.Valid {
-			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr.String); err == nil {
-				apikey.CreatedAt = t
-			}
-		}
-		if expiresAtStr.Valid && expiresAtStr.String != "" {
-			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", expiresAtStr.String); err == nil {
-				apikey.ExpiresAt = &t
-			}
-		}
-		if lastUsedStr.Valid && lastUsedStr.String != "" {
-			if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastUsedStr.String); err == nil {
-				apikey.LastUsed = &t
-			}
-		}
+		// 使用工具函数解析时间
+		apikey.CreatedAt = utils.ParseTime(createdAtStr.String)
+		apikey.ExpiresAt = utils.ParseTimePtr(expiresAtStr.String)
+		apikey.LastUsed = utils.ParseTimePtr(lastUsedStr.String)
 		keys = append(keys, apikey)
 	}
 	return keys, nil
