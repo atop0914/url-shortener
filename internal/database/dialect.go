@@ -83,7 +83,8 @@ func (d *SQLiteDialect) GetIfNotExists() string {
 }
 
 func (d *SQLiteDialect) GetDefaultNow() string {
-	return "CURRENT_TIMESTAMP"
+	// SQLite 兼容 - 使用空字符串，让应用层插入时间
+	return ""
 }
 
 func (d *SQLiteDialect) GetDateFunction(column string) string {
