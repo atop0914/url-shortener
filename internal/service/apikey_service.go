@@ -36,7 +36,7 @@ func (s *APIKeyService) GenerateKey(req *model.CreateAPIKeyRequest) (*model.APIK
 	}
 
 	apikey := &model.APIKey{
-		Key:       key,
+		APIKey:    key,
 		Name:      req.Name,
 		CreatedAt: time.Now(),
 		ExpiresAt: expiresAt,
@@ -54,7 +54,7 @@ func (s *APIKeyService) GenerateKey(req *model.CreateAPIKeyRequest) (*model.APIK
 
 	return &model.APIKeyResponse{
 		ID:        apikey.ID,
-		Key:       apikey.Key,
+		Key:       apikey.APIKey,
 		Name:      apikey.Name,
 		CreatedAt: apikey.CreatedAt,
 		ExpiresAt: expiresAtTime,

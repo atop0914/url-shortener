@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -103,6 +104,13 @@ func main() {
 	// 首页
 	router.GET("/", func(c *gin.Context) {
 		dbType := "sqlite"
+		if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+			if strings.Contains(dsn, "postgres") {
+				dbType = "postgresql"
+			} else if strings.Contains(dsn, "mysql") || strings.Contains(dsn, "tcp(") {
+				dbType = "mysql"
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Welcome to URL Shortener Service",
 			"version": "1.0.0",

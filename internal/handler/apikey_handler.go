@@ -51,7 +51,7 @@ func (h *APIKeyHandler) ListKeys(c *gin.Context) {
 	// Mask the keys for security
 	maskedKeys := make([]model.APIKey, len(keys))
 	for i, key := range keys {
-		key.Key = maskKey(key.Key)
+		key.APIKey = maskKey(key.APIKey)
 		maskedKeys[i] = key
 	}
 
