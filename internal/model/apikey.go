@@ -7,7 +7,7 @@ import (
 // APIKey API Key 实体
 type APIKey struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
-	Key       string     `gorm:"type:varchar(128);uniqueIndex;not null" json:"key"`
+	APIKey    string     `gorm:"type:varchar(128);uniqueIndex;not null;column:key" json:"key"`
 	Name      string     `gorm:"type:varchar(100);not null" json:"name"`
 	CreatedAt time.Time  `gorm:"autoCreateTime" json:"created_at"`
 	ExpiresAt *time.Time `gorm:"index" json:"expires_at,omitempty"`

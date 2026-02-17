@@ -55,8 +55,8 @@ go run cmd/server/main.go
 默认使用 SQLite 数据库，无需额外配置：
 
 ```bash
-export DATABASE_URL="./urls.db"
-# 或使用默认路径
+# 无需设置 DATABASE_URL，默认使用 urls.db
+go run cmd/server/main.go
 ```
 
 ### MySQL 配置
@@ -64,17 +64,17 @@ export DATABASE_URL="./urls.db"
 使用 MySQL 数据库，设置 `DATABASE_URL` 环境变量：
 
 ```bash
-export DATABASE_URL="mysql://username:password@host:port/database?parseTime=true"
-# 简化格式也支持：
-export DATABASE_URL="username:password@tcp(host:port)/database?parseTime=true"
+export DATABASE_URL="username:password@tcp(host:port)/database?charset=utf8mb4&parseTime=True&loc=Local"
 ```
 
 示例：
 
 ```bash
-export DATABASE_URL="root:secret@tcp(localhost:3306)/urlshortener?parseTime=true"
+export DATABASE_URL="root:secret@tcp(localhost:3306)/urlshortener?charset=utf8mb4&parseTime=True&loc=Local"
 go run cmd/server/main.go
 ```
+
+> **注意**：GORM MySQL 驱动需要 `tcp()` 格式，charset 建议使用 `utf8mb4`
 
 ### PostgreSQL 配置
 
@@ -82,8 +82,6 @@ go run cmd/server/main.go
 
 ```bash
 export DATABASE_URL="postgres://username:password@host:port/database?sslmode=disable"
-# 简化格式也支持：
-export DATABASE_URL="user=username password=password host=host port=5432 dbname=database sslmode=disable"
 ```
 
 示例：
@@ -98,7 +96,7 @@ go run cmd/server/main.go
 ```bash
 # MySQL
 docker run -d -p 8080:8080 \
-  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?parseTime=true" \
+  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?charset=utf8mb4&parseTime=True&loc=Local" \
   -e BASE_URL=http://your-domain.com \
   url-shortener
 
@@ -299,72 +297,34 @@ url-shortener/
 │   └── server/
 │       └── main.go             # 应用入口点
 ├── internal/
-│   ├── database/               # 数据库抽象层（新增）
-│   │   ├── database.go         # 数据库连接管理
-│   │   └── dialect.go          # SQL 方言适配器
-│   ├── model/                  # 数据模型定义
-│   │   ├── url.go              # URL实体定义
-│   │   ├── analytics.go        # 分析数据模型
-│   │   └── apikey.go           # API Key 模型
-│   ├── service/                # 业务逻辑层
-│   │   ├── shortener.go        # 基础短链接服务
-│   │   ├── enhanced_shortener.go # 增强短链接服务
-│   │   ├── analytics_service.go # 分析服务
-│   │   └── apikey_service.go   # API Key 服务
-│   ├── handler/                # HTTP处理器
-│   │   ├── handler.go          # 基础处理器
-│   │   ├── enhanced_handler.go # 增强处理器
-│   │   └── apikey_handler.go   # API Key 处理器
-│   ├── repository/             # 数据访问层
-│   │   ├── url_repo.go         # URL数据访问
-│   │   ├── analytics_repo.go   # 分析数据访问
-│   │   └── apikey_repo.go      # API Key 访问
-│   ├── middleware/             # 中间件
-│   │   └── auth.go             # API Key 认证中间件
-│   ├── utils/                  # 工具函数
-│   │   ├── errors.go           # 错误定义和处理
-│   │   ├── validation.go       # 输入验证
-│   │   ├── user_agent_parser.go # 用户代理解析
-│   │   └── response.go         # 统一响应格式
-│   └── config/                 # 配置管理
-│       └── config.go           # 应用配置
+│   ├── database/
+│   │   └── gormdb/            # GORM 数据库层
+│   │       └── database.go   # 数据库连接管理
+│   ├── model/                 # 数据模型定义 (GORM tags)
+│   │   ├── url.go             # URL实体定义
+│   │   ├── analytics.go       # 分析数据模型
+│   │   └── apikey.go          # API Key 模型
+│   ├── service/               # 业务逻辑层
+│   ├── handler/               # HTTP处理器
+│   ├── repository/            # 数据访问层 (GORM)
+│   ├── middleware/            # 中间件
+│   ├── utils/                 # 工具函数
+│   └── config/                # 配置管理
 ├── go.mod
 ├── go.sum
 ├── Makefile
 └── README.md
 ```
 
-## 多数据库支持实现
+## 技术实现
 
-本项目使用数据库抽象层来支持多种数据库：
+### GORM 框架
 
-### 数据库类型检测
+本项目使用 GORM 作为 ORM 框架，实现了对多种数据库的原生支持：
 
-系统会自动根据 `DATABASE_URL` 的格式检测数据库类型：
-
-- 以 `mysql:` 或 `tcp(` 开头 → MySQL
-- 以 `postgres:` 或 `postgresql:` 开头 → PostgreSQL
-- 其他情况（本地文件路径） → SQLite
-
-### 方言适配器
-
-不同数据库的 SQL 语法差异由 `Dialect` 接口处理：
-
-| 特性 | SQLite | MySQL | PostgreSQL |
-|------|--------|-------|------------|
-| 占位符 | `?` | `?` | `$1`, `$2`... |
-| 自增字段 | AUTOINCREMENT | AUTO_INCREMENT | SERIAL |
-| 布尔类型 | INTEGER | TINYINT(1) | BOOLEAN |
-| 日期函数 | DATE() | DATE() | DATE() |
-| 时间提取 | strftime() | HOUR() | EXTRACT() |
-
-### 添加新数据库支持
-
-要支持新的数据库，只需：
-
-1. 添加对应的驱动 import
-2. 实现 `Dialect` 接口
-3. 更新 `ParseDBType()` 函数
+- **自动迁移**：GORM AutoMigrate 自动创建/更新表结构
+- **跨数据库兼容**：相同的 Go 代码支持多种数据库
+- **连接池管理**：内置高效的数据库连接池
 
 ## Docker 完整部署示例
 
@@ -387,7 +347,7 @@ docker run -d \
   --name url-shortener \
   --network url-shortener-network \
   -p 8080:8080 \
-  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?parseTime=true" \
+  -e DATABASE_URL="root:secret@tcp(mysql:3306)/urlshortener?charset=utf8mb4&parseTime=True&loc=Local" \
   -e BASE_URL=http://localhost:8080 \
   url-shortener
 ```
